@@ -1,0 +1,89 @@
+ <project name="AnnotatedVDB" default="Installation" basedir=".">
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo  Dependencies  oooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo    Checkout    oooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo    Update    oooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo  Installation  oooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <target name="AnnotatedVDB-Installation" depends="
+                                            AnnotatedVDB/Load-Installation,
+                                            AnnotatedVDB/Util-Installation,
+					    AnnotatedVDB/BinIndex-Installation">
+
+    <ant target="defaultProjectInstall"/>
+  </target>  
+   
+
+  <!-- oooooooooooooooooo  Installation Postprocess  ooooooooooooooooooooo -->
+
+  <target name="AnnotatedVDB-Installation-postprocess">
+    <echo message="Postprocessing the AnnotatedVDB installation"/>
+
+    <replace dir="${targetDir}/bin" 
+             propertyFile="${targetDir}/config/replacements.prop" > 
+      <include name="**/*" />
+      <replacefilter token="@perl@" property="perl"/>
+    </replace> 
+
+  </target>
+
+
+  <!-- ooooooooooooooooooooooo  Install Components  ooooooooooooooooooooooo -->
+
+  <target name="AnnotatedVDB/Load-Installation" depends="ProjectTree">
+    <ant target="defaultComponentInstall">
+      <property name="project" value="AnnotatedVDB"/>
+      <property name="component" value="Load"/>
+    </ant>
+  </target>  
+
+ <target name="AnnotatedVDB/Util-Installation" depends="ProjectTree">
+    <ant target="defaultComponentInstall">
+      <property name="project" value="AnnotatedVDB"/>
+      <property name="component" value="Util"/>
+    </ant>
+  </target>  
+
+<target name="AnnotatedVDB/BinIndex-Installation" depends="ProjectTree">
+    <ant target="defaultComponentInstall">
+      <property name="project" value="AnnotatedVDB"/>
+      <property name="component" value="BinIndex"/>
+    </ant>
+  </target>  
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo  Distributable  ooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <target name="AnnotatedVDB-Distributable" depends="ProjectTree">
+
+    <copy todir="${targetDir}">
+      <fileset dir="${projectsDir}" >
+        <exclude name="**/CVS/*" />
+      </fileset>
+    </copy>  
+  </target>  
+
+
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooo  ProjectTree  ooooooooooooooooooooooooooo -->
+  <!-- oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo -->
+
+  <target name="ProjectTree" if="${checkout}">
+    <ant target="projectCheckOut"/>
+  </target>  
+
+</project>
+
+
