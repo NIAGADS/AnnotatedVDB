@@ -15,7 +15,6 @@ import copy
 from datetime import datetime
 
 from os import path
-from concurrent.futures import ThreadPoolExecutor
 
 from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN
 from CBILDataCommon.Util.postgres_dbi import Database
@@ -24,13 +23,12 @@ from CBILDataCommon.Util.exceptions import print_exception
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
 from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
-# from AnnotatedVDB.Util.chromosomes import Human
-
 
 def evaluate_minor_allele(): 
     ''' some dbSNP variants are reported in VCF w/single mutations
     but are actually multiallelic (have additional minor allele) 
-    in 1000 Genomes'''
+    and reported as such on the dbSNP website.  To catch these we 
+    need to evaluate the 1000Genomes minor allele frequency '''
 
     refSnpId = vepParser.get('ref_snp_id')
     refAllele = vepParser.get('ref_allele')
@@ -44,11 +42,14 @@ def evaluate_minor_allele():
             minorAllele = frequencies['minor_allele']
             aFreq = get_allele_frequencies(minorAllele, frequencies)
 
-            if aFreq is not None: # its there
-                frequencies['values'][minorAllele]['1000Genomes'].append({'gmaf': minorAlleleFreq})
+            if aFreq is not None: # its there, just update
+                if '1000Genomes' in aFreq:
+                    frequencies['values'][minorAllele]['1000Genomes'].append({'gmaf': minorAlleleFreq})
+                else:
+                    frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
                 match = True
                 
-            # the allele frequencies stored are not for the minor allele; add in
+            # the minor allele is one of the alt alleles in the VCF
             elif minorAllele in altAlleles:
                 frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
                 match = True
@@ -61,7 +62,10 @@ def evaluate_minor_allele():
                         aFreq = get_allele_frequencies(nAlt, frequencies)
                         match = True
                         if aFreq is not None: # this should never happen, b/c it should have been caught above, but...
-                            frequencies['values'][minorAllele]['1000Genomes'].append({'gmaf': minorAlleleFreq})
+                            if '1000Genomes' in aFreq:
+                                frequencies['values'][minorAllele]['1000Genomes'].append({'gmaf': minorAlleleFreq})
+                            else:
+                                frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
                         else:
                             frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
 
@@ -75,12 +79,10 @@ def evaluate_minor_allele():
 
             if not match:
                 warning("Unable to match minor allele", minorAllele, "to variant -", refSnpId, "- alleles:", refAllele + '/' + '/'.join(altAlleles), "Assuming VCF/dbSNP record mismatch.")
-
                 frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
 
-                # add it to the alternative alleles, so it will be loaded as its own variant
+                # also add it to the alternative alleles, so it will be loaded as its own variant
                 vepParser.set('alt_allele', altAlleles.append(minorAllele)) 
-
 
     return frequencies
         
@@ -124,8 +126,8 @@ def load_annotation(chromosome):
     skipCount = 0 
     variantColumns = qw('chromosome location is_multi_allelic bin_index ref_snp_id metaseq_id allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output', returnTuple=True)
 
-    resume = False if args.resumeAfter is None else True
-    if resume:
+    resume = True if args.resumeAfter is None else False
+    if not resume:
         warning("--resumeAfter flag specified; Finding skip until point", args.resumeAfter)
 
     previousSnp = None
@@ -148,8 +150,9 @@ def load_annotation(chromosome):
 
                     refSnpId = entry.get_refsnp()
 
-                    if not resume and args.resumeAfter is not None:
+                    if not resume:
                         if previousSnp == args.resumeAfter:
+                            warning(previousSnp, refSnpId)
                             warning("Resuming after:", args.resumeAfter, "- SKIPPED", skipCount, "lines.")
                             resume = True
                         else:
