@@ -87,7 +87,10 @@ start_lost,inframe_deletion	73	HIGH	7	HIGH
 stop_lost,splice_region_variant,3_prime_UTR_variant	74	HIGH	7	HIGH	
 start_lost,splice_region_variant,5_prime_UTR_variant	75	HIGH	7	HIGH	
 start_lost,splice_region_variant	76	HIGH	7	HIGH	
-start_lost,start_retained_variant,5_prime_UTR_variant	76.5	HIGH			T
+start_lost,splice_region_variant,start_retained_variant	76.3	HIGH			T
+start_lost,start_retained_variant,NMD_transcript_variant	76.4	HIGH			T
+start_lost,start_retained_variant,5_prime_UTR_variant,NMD_transcript_variant	76.5	HIGH			T
+start_lost,start_retained_variant,5_prime_UTR_variant	76.6	HIGH			T
 start_lost,5_prime_UTR_variant	77	HIGH	7	HIGH	
 start_lost,start_retained_variant	77.5	HIGH			T
 start_lost	78	HIGH	7	HIGH	
@@ -243,6 +246,7 @@ splice_region_variant,intron_variant,non_coding_transcript_variant	217	MODIFIER	
 splice_region_variant,non_coding_transcript_variant	218	MODIFIER	13	LOW	
 non_coding_transcript_exon_variant,non_coding_transcript_variant	219	MODIFIER	21	MODIFIER	
 non_coding_transcript_exon_variant	220	MODIFIER	21	MODIFIER	
+non_coding_transcript_exon_variant,intron_variant	220.5	MODIFIER			T
 intron_variant,non_coding_transcript_variant	221	MODIFIER	22	MODIFIER	
 non_coding_transcript_variant	222	MODIFIER	24	MODIFIER	
 upstream_gene_variant	223	MODIFIER	25	MODIFIER	
