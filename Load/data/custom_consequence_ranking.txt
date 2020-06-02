@@ -26,6 +26,7 @@ splice_acceptor_variant,3_prime_UTR_variant	21	HIGH	2	HIGH
 splice_acceptor_variant,intron_variant	22	HIGH	2	HIGH	
 splice_acceptor_variant	23	HIGH	2	HIGH	
 splice_donor_variant,frameshift_variant	24	HIGH	3	HIGH	
+splice_donor_variant,frameshift_variant,intron_variant	24.5	HIGH			T
 splice_donor_variant,inframe_deletion	25	HIGH	3	HIGH	
 splice_donor_variant,stop_gained	26	HIGH	3	HIGH	
 splice_donor_variant,coding_sequence_variant,5_prime_UTR_variant,NMD_transcript_variant	26.5	HIGH			T
@@ -44,6 +45,7 @@ splice_donor_variant,3_prime_UTR_variant	38	HIGH	3	HIGH
 splice_donor_variant,intron_variant	39	HIGH	3	HIGH	
 splice_donor_variant	40	HIGH	3	HIGH	
 stop_gained,frameshift_variant,start_lost	41	HIGH	4	HIGH	
+stop_gained,frameshift_variant,start_lost,start_retained_variant	41.05	HIGH			T
 stop_gained,frameshift_variant,start_lost,splice_region_variant,NMD_transcript_variant	41.1	HIGH			T
 stop_gained,frameshift_variant,start_lost,splice_region_variant	41.5	HIGH			T
 stop_gained,frameshift_variant,splice_region_variant	42	HIGH	4	HIGH	
@@ -52,6 +54,7 @@ stop_gained,frameshift_variant	43	HIGH	4	HIGH
 stop_gained,start_lost	44	HIGH	4	HIGH	
 stop_gained,start_lost,splice_region_variant	44.5	HIGH			T
 stop_gained,inframe_insertion,splice_region_variant	45	HIGH	4	HIGH	
+stop_gained,incomplete_terminal_codon_variant,coding_sequence_variant	45.5	HIGH			T
 stop_gained,inframe_insertion,incomplete_terminal_codon_variant,coding_sequence_variant	46	HIGH	4	HIGH	
 stop_gained,inframe_insertion,incomplete_terminal_codon_variant	46.5	HIGH			T
 stop_gained,inframe_insertion,coding_sequence_variant	47	HIGH	4	HIGH	
@@ -70,6 +73,7 @@ frameshift_variant,start_lost,splice_region_variant	58	HIGH	5	HIGH
 frameshift_variant,start_lost	59	HIGH	5	HIGH	
 frameshift_variant,splice_region_variant,stop_retained_variant	60	HIGH	5	HIGH	
 frameshift_variant,start_lost,splice_region_variant,start_retained_variant	61	HIGH	5	HIGH	
+frameshift_variant,start_lost,splice_region_variant,start_retained_variant,NMD_transcript_variant	61.5	HIGH			T
 frameshift_variant,splice_region_variant,intron_variant	62	HIGH	5	HIGH	
 frameshift_variant,splice_region_variant	63	HIGH	5	HIGH	
 frameshift_variant,stop_retained_variant	64	HIGH	5	HIGH	
@@ -79,14 +83,20 @@ stop_lost,start_lost	67	HIGH	6	HIGH
 stop_lost,inframe_deletion,splice_region_variant,NMD_transcript_variant	67.1	HIGH			T
 stop_lost,inframe_deletion,splice_region_variant	67.5	HIGH			T
 stop_lost,inframe_deletion	68	HIGH	6	HIGH	
+stop_lost,inframe_deletion,splice_region_variant,stop_retained_variant,NMD_transcript_variant	68.3	HIGH			T
+stop_lost,inframe_deletion,stop_retained_variant,NMD_transcript_variant	68.4	HIGH			T
+stop_lost,inframe_deletion,stop_retained_variant	68.5	HIGH			ssss
 stop_lost,splice_region_variant	69	HIGH	6	HIGH	
 stop_lost,3_prime_UTR_variant	70	HIGH	6	HIGH	
 stop_lost	71	HIGH	6	HIGH	
 start_lost,inframe_deletion,splice_region_variant	72	HIGH	7	HIGH	
 start_lost,inframe_deletion	73	HIGH	7	HIGH	
+stop_lost,splice_region_variant,3_prime_UTR_variant,NMD_transcript_variant	73.5	HIGH			T
 stop_lost,splice_region_variant,3_prime_UTR_variant	74	HIGH	7	HIGH	
+start_lost,splice_region_variant,5_prime_UTR_variant,NMD_transcript_variant	74.5	HIGH			T
 start_lost,splice_region_variant,5_prime_UTR_variant	75	HIGH	7	HIGH	
 start_lost,splice_region_variant	76	HIGH	7	HIGH	
+start_lost,splice_region_variant,start_retained_variant,5_prime_UTR_variant	76.1	HIGH			T
 start_lost,splice_region_variant,start_retained_variant	76.3	HIGH			T
 start_lost,start_retained_variant,NMD_transcript_variant	76.4	HIGH			T
 start_lost,start_retained_variant,5_prime_UTR_variant,NMD_transcript_variant	76.5	HIGH			T
@@ -113,6 +123,7 @@ missense_variant	91	MODERATE	10	MODERATE
 protein_altering_variant,splice_region_variant,intron_variant	91.5	MODERATE			T
 protein_altering_variant,splice_region_variant	92	MODERATE	11	MODERATE	
 protein_altering_variant,incomplete_terminal_codon_variant	93	MODERATE	11	MODERATE	
+splice_acceptor_variant,protein_altering_variant,intron_variant	93.5	MODERATE			T
 protein_altering_variant	94	MODERATE	11	MODERATE	
 splice_region_variant,incomplete_terminal_codon_variant,coding_sequence_variant	95	LOW	12	LOW	
 splice_region_variant,stop_retained_variant	96	LOW	12	LOW	
@@ -128,21 +139,27 @@ splice_region_variant,intron_variant	103	LOW	12	LOW
 incomplete_terminal_codon_variant,coding_sequence_variant,3_prime_UTR_variant	104	LOW	13	LOW	
 incomplete_terminal_codon_variant,coding_sequence_variant	105	LOW	13	LOW	
 incomplete_terminal_codon_variant,stop_retained_variant	105.5	LOW			T
+incomplete_terminal_codon_variant,stop_retained_variant,3_prime_UTR_variant,NMD_transcript_variant	105.6	LOW			T
 incomplete_terminal_codon_variant	106	LOW	13	LOW	
 missense_variant,stop_retained_variant	107	LOW	13	LOW	
 start_retained_variant,5_prime_UTR_variant	108	LOW	13	LOW	
+frameshift_variant,start_retained_variant	108.5	LOW			T
 start_retained_variant	109	LOW	13	LOW	
-start_lost,synonymous_variant	109.5				T
+start_lost,splice_region_variant,synonymous_variant	109.3	LOW			T
+start_lost,synonymous_variant	109.5	LOW			T
+start_lost,synonymous_variant,NMD_transcript_variant	109.7	LOW			T
 stop_retained_variant,3_prime_UTR_variant	110	LOW	13	LOW	
 stop_retained_variant	111	LOW	14	LOW	
 synonymous_variant	112	LOW	15	LOW	
 coding_sequence_variant,5_prime_UTR_variant	113	MODIFIER	16	MODIFIER	
+coding_sequence_variant,5_prime_UTR_variant,intron_variant	113.2	MODIFIER			T
 coding_sequence_variant,5_prime_UTR_variant,3_prime_UTR_variant	113.5	MODIFIER			T
 coding_sequence_variant,3_prime_UTR_variant	114	MODIFIER	16	MODIFIER	
 coding_sequence_variant	115	MODIFIER	16	MODIFIER	
 mature_miRNA_variant	116	MODIFIER	17	MODIFIER	
 5_prime_UTR_variant	117	MODIFIER	18	MODIFIER	
 3_prime_UTR_variant	118	MODIFIER	19	MODIFIER	
+5_prime_UTR_variant,intron_variant	118.3	MODIFIER			T
 intron_variant	119	MODIFIER	20	MODIFIER	
 splice_acceptor_variant,splice_donor_variant,3_prime_UTR_variant,intron_variant,NMD_transcript_variant	120	MODIFIER	2	HIGH	
 splice_acceptor_variant,splice_donor_variant,coding_sequence_variant,intron_variant,NMD_transcript_variant	121	MODIFIER	2	HIGH	
@@ -204,11 +221,17 @@ missense_variant,splice_region_variant,NMD_transcript_variant	176	MODIFIER	10	MO
 missense_variant,NMD_transcript_variant	177	MODIFIER	10	MODERATE	
 protein_altering_variant,splice_region_variant,NMD_transcript_variant	178	MODIFIER	11	MODERATE	
 protein_altering_variant,NMD_transcript_variant	179	MODIFIER	11	MODERATE	
+splice_region_variant,stop_retained_variant,3_prime_UTR_variant	179.5	MODIFIER			T
 splice_region_variant,stop_retained_variant,NMD_transcript_variant	180	MODIFIER	12	LOW	
+splice_region_variant,stop_retained_variant,3_prime_UTR_variant,NMD_transcript_variant	180.5	MODIFIER			T
 splice_region_variant,coding_sequence_variant,NMD_transcript_variant	181	MODIFIER	12	LOW	
 splice_region_variant,coding_sequence_variant,3_prime_UTR_variant,NMD_transcript_variant	182	MODIFIER	12	LOW	
+splice_region_variant,coding_sequence_variant,intron_variant	182.5	MODIFIER			T
 splice_region_variant,synonymous_variant,NMD_transcript_variant	183	MODIFIER	12	LOW	
+splice_region_variant,5_prime_UTR_variant,intron_variant	183.5	MODIFIER			T
 splice_region_variant,5_prime_UTR_variant,NMD_transcript_variant	184	MODIFIER	12	LOW	
+splice_region_variant,3_prime_UTR_variant,intron_variant,NMD_transcript_variant	184.3	MODIFIER			T
+splice_region_variant,3_prime_UTR_variant,intron_variant	184.5	MODIFIER			T
 splice_region_variant,3_prime_UTR_variant,NMD_transcript_variant	185	MODIFIER	12	LOW	
 splice_region_variant,intron_variant,NMD_transcript_variant	186	MODIFIER	12	LOW	
 incomplete_terminal_codon_variant,coding_sequence_variant,3_prime_UTR_variant,NMD_transcript_variant	187	MODIFIER	13	LOW	
@@ -221,8 +244,11 @@ synonymous_variant,NMD_transcript_variant	193	MODIFIER	15	LOW
 coding_sequence_variant,5_prime_UTR_variant,NMD_transcript_variant	194	MODIFIER	16	MODIFIER	
 coding_sequence_variant,3_prime_UTR_variant,NMD_transcript_variant	195	MODIFIER	16	MODIFIER	
 coding_sequence_variant,NMD_transcript_variant	196	MODIFIER	16	MODIFIER	
+coding_sequence_variant,intron_variant,NMD_transcript_variant	196.3	MODIFIER			T
+coding_sequence_variant,intron_variant	196.5	MODIFIER			T
 5_prime_UTR_variant,NMD_transcript_variant	197	MODIFIER	17	MODIFIER	
 3_prime_UTR_variant,NMD_transcript_variant	198	MODIFIER	18	MODIFIER	
+3_prime_UTR_variant,intron_variant,NMD_transcript_variant	198.5	MODIFIER			T
 intron_variant,NMD_transcript_variant	199	MODIFIER	20	MODIFIER	
 splice_acceptor_variant,splice_donor_variant,non_coding_transcript_exon_variant,intron_variant,non_coding_transcript_variant	200	MODIFIER	2	HIGH	
 splice_acceptor_variant,splice_donor_variant,non_coding_transcript_exon_variant,intron_variant	201	MODIFIER	2	HIGH	
@@ -240,6 +266,7 @@ splice_donor_variant,intron_variant,non_coding_transcript_variant	212	MODIFIER	3
 splice_donor_variant,non_coding_transcript_variant	213	MODIFIER	3	HIGH	
 splice_region_variant,non_coding_transcript_exon_variant,non_coding_transcript_variant	214	MODIFIER	13	LOW	
 splice_region_variant,non_coding_transcript_exon_variant,intron_variant,non_coding_transcript_variant	214.1	MODIFIER			T
+splice_region_variant,non_coding_transcript_exon_variant,intron_variant	214.2	MODIFIER			T
 splice_donor_variant,non_coding_transcript_exon_variant	215	MODIFIER	13	LOW	
 splice_region_variant,non_coding_transcript_exon_variant	216	MODIFIER	13	LOW	
 splice_region_variant,intron_variant,non_coding_transcript_variant	217	MODIFIER	13	LOW	

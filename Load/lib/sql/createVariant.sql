@@ -15,7 +15,8 @@ CREATE UNLOGGED TABLE Variant (
        ADSP_RANKED_CONSEQUENCES JSONB,
        LOSS_OF_FUNCTION		    JSONB,
        VEP_OUTPUT	       JSONB,
-       OTHER_ANNOTATION	       JSONB
+       OTHER_ANNOTATION	       JSONB,
+       ROW_ALGORITHM_ID	       INTEGER NOT NULL
 ) PARTITION BY LIST (CHROMOSOME);
 
 -- CREATE PARTITIONS
@@ -29,7 +30,7 @@ DECLARE
     BEGIN
 
       FOR chr IN
-        SELECT UNNEST(string_to_array('chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr19 chr20 chr21 chr22 chrX chrY chrM', ' '))
+        SELECT UNNEST(string_to_array('chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY chrM', ' '))
       LOOP   
         partition := 'VARIANT' || '_' || chr::text;
         IF NOT EXISTS(SELECT relname FROM pg_class WHERE relname=partition) THEN
@@ -68,5 +69,7 @@ CREATE INDEX VARIANT_INDX02 ON Variant(REF_SNP_ID);
 CREATE INDEX VARIANT_INDX03 ON Variant(METASEQ_ID);
 CREATE INDEX VARIANT_INDX04 ON Variant(IS_ADSP_VARIANT) WHERE IS_ADSP_VARIANT IS TRUE;
 CREATE INDEX VARIANT_INDX05 ON Variant(CHROMOSOME, LOCATION_START, REF_SNP_ID, METASEQ_ID) */
+
+CREATE INDEX VARIANT_UNDO_INDEX ON Variant USING BRIN(CHROMOSOME, ROW_ALGORITHM_ID);
 
 
