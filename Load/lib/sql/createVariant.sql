@@ -1,5 +1,5 @@
 -- table for variants
-DROP TABLE IF EXISTS Variant;
+DROP TABLE IF EXISTS Variant CASCADE;
 
 CREATE UNLOGGED TABLE Variant (
        CHROMOSOME           CHARACTER VARYING(10) NOT NULL,

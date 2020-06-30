@@ -2,6 +2,7 @@
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
 Loads AnnotatedVDB from JSON output from running VEP on dbSNP
+USE ONLY IF CERTAIN OF NO UNKNOWN CONSEQUENCES
 """
 from __future__ import print_function
 
@@ -16,7 +17,7 @@ from datetime import datetime
 
 from os import path
 
-from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN
+from CBILDataCommon.Util.utils import xstr, die, qw, execute_cmd, xstrN, warning
 from CBILDataCommon.Util.postgres_dbi import Database
 from CBILDataCommon.Util.exceptions import print_exception
 
@@ -25,7 +26,13 @@ from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
 from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
 
-def evaluate_minor_allele():
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
+from AnnotatedVDB.Util.chromosomes import Human
+
+
+def evaluate_minor_allele(vepParser, lfh):
     ''' some dbSNP variants are reported in VCF w/single mutations
     but are actually multiallelic (have additional minor allele)
     and reported as such on the dbSNP website.  To catch these we
@@ -84,14 +91,14 @@ def evaluate_minor_allele():
                 match = True
                 warning("Matched minor allele", minorAllele,
                         "to normalized reference for variant -",
-                        refSnpId, refAllele + '/' + '/'.join(altAlleles), "- IGNORED")
+                        refSnpId, refAllele + '/' + '/'.join(altAlleles), "- IGNORED", file=lfh, flush=True)
                 break
 
     if not match:
         warning("Unable to match minor allele", minorAllele,
                 "to variant -", refSnpId, "- alleles:",
                 refAllele + '/' + '/'.join(altAlleles),
-                "Assuming VCF/dbSNP record mismatch.")
+                "Assuming VCF/dbSNP record mismatch.", file=lfh, flush=True)
         frequencies['values'][minorAllele]['1000Genomes'] = [{'gmaf': minorAlleleFreq}]
 
         # also add it to the alternative alleles, so it will be loaded as its own variant
@@ -100,10 +107,10 @@ def evaluate_minor_allele():
     return frequencies
 
 
-def get_frequencies():
+def get_frequencies(vepParser, lfh):
     ''' extract frequencies'''
 
-    frequencies = evaluate_minor_allele()
+    frequencies = evaluate_minor_allele(vepParser, lfh)
     if frequencies is None:
         return None
     return frequencies['values']
@@ -117,20 +124,23 @@ def json2str(value):
         return json.dumps(value)
 
 
-def verify_minor_allele(normRef, ref, normAlt, alt):
-    ''' update minor allele info if was mapped against normalized allele '''
-
-    minorAllele = vepParser.get('minor_allele')
-    if minorAllele is not None:
-        if minorAllele == normAlt:
-            vepParser.set('minor_allele', alt)
-        elif minorAllele == normRef:
-            vepParser.set('minor_allele', ref)
-
-
 def load_annotation(chromosome):
     ''' parse over a JSON file, extract position, frequencies,
     ids, and ADSP-ranked most severe consequence; bulk load using COPY '''
+
+    lfn = xstr(chromosome) + '.log';
+    lfh = open(lfn, 'w')
+
+    algInvocation = AlgorithmInvocation('parallel_load_dbsnp_vep_result.py', json.dumps({'chromosome': chromosome}), args.commit)
+    algInvocId = xstr(algInvocation.getAlgorithmInvocationId())
+    algInvocation.close()
+    warning("Algorithm Invocation ID", algInvocId, file=lfh, flush=True)
+
+    vepParser = VepJsonParser(args.rankingFile, verbose=True)
+    indexer = BinIndex(args.gusConfigFile, verbose=False)
+
+    database = Database(args.gusConfigFile)
+    database.connect()
 
     fname = 'chr' + xstr(chromosome) + '.json.gz'
     fname = path.join(args.dir, fname)
@@ -140,7 +150,7 @@ def load_annotation(chromosome):
 
     resume = True if args.resumeAfter is None else False
     if not resume:
-        warning("--resumeAfter flag specified; Finding skip until point", args.resumeAfter)
+        warning("--resumeAfter flag specified; Finding skip until point", args.resumeAfter, file=lfh, flush=True)
 
     previousSnp = None
     with database.cursor() as cursor:
@@ -164,9 +174,9 @@ def load_annotation(chromosome):
 
                     if not resume:
                         if previousSnp == args.resumeAfter:
-                            warning(previousSnp, refSnpId)
+                            warning(previousSnp, refSnpId, file=lfh, flush=True)
                             warning("Resuming after:", args.resumeAfter, "- SKIPPED",
-                                    skipCount, "lines.")
+                                    skipCount, "lines.", file=lfh, flush=True)
                             resume = True
                         else:
                             previousSnp = refSnpId
@@ -174,7 +184,7 @@ def load_annotation(chromosome):
                             continue
 
                     if lineCount == 1 or variantCount % args.commitAfter == 0:
-                        warning('Processing new copy object')
+                        warning('Processing new copy object', file=lfh, flush=True)
                         tstart = datetime.now()
 
                     vepParser.set('ref_snp_id', refSnpId)
@@ -185,17 +195,17 @@ def load_annotation(chromosome):
                     chrom = xstr(entry.get('chrom'))
                     if chrom == 'MT':
                         chrom = 'M'
-
                     position = int(entry.get('pos'))
 
                     isMultiAllelic = len(altAllele) > 1
 
                     try:
+
                         vepParser.set('is_multi_allelic', isMultiAllelic)
                         vepParser.set('ref_allele', refAllele)
                         vepParser.set('alt_allele', altAllele)
 
-                        frequencies = get_frequencies()
+                        frequencies = get_frequencies(vepParser, lfh)
                         vepParser.adsp_rank_and_sort_consequences()
 
                         # for each allele
@@ -211,7 +221,7 @@ def load_annotation(chromosome):
                             alleleFreq = None if frequencies is None \
                               else get_allele_frequencies(nAlt, frequencies)
 
-                            msConseq = get_most_severe_consequence(nAlt)
+                            msConseq = get_most_severe_consequence(nAlt, vepParser)
 
                             valueStr = '#'.join((
                                 'chr' + xstr(chrom),
@@ -222,7 +232,7 @@ def load_annotation(chromosome):
                                 metaseqId,
                                 json2str(alleleFreq),
                                 json2str(msConseq),
-                                json2str(get_adsp_ranked_allele_consequences(nAlt)),
+                                json2str(get_adsp_ranked_allele_consequences(nAlt, vepParser)),
                                 json.dumps(vepResult),
                                 algInvocId
                                 ))
@@ -231,12 +241,12 @@ def load_annotation(chromosome):
 
                             if variantCount % args.logAfter == 0 \
                               and variantCount % args.commitAfter != 0:
-                                warning("PARSED", variantCount)
+                                warning("PARSED", variantCount, file=lfh, flush=True)
 
                             if variantCount % args.commitAfter == 0:
                                 tendw = datetime.now()
                                 warning('Copy object prepared in ' + str(tendw - tstart) + '; ' +
-                                        str(copyObj.tell()) + ' bytes; transfering to database')
+                                        str(copyObj.tell()) + ' bytes; transfering to database', file=lfh, flush=True)
                                 copyObj.seek(0)
                                 cursor.copy_from(copyObj, 'variant', sep='#', null="NULL",
                                                  columns=VARIANT_COLUMNS)
@@ -251,20 +261,21 @@ def load_annotation(chromosome):
                                     message = "PARSED " + message + " -- rolling back"
 
                                 if variantCount % args.logAfter == 0:
-                                    warning(message, "; up to = ", refSnpId)
+                                    warning(message, "; up to = ", refSnpId, file=lfh, flush=True)
 
                                 tend = datetime.now()
-                                warning('Database copy time: ' + str(tend - tendw))
-                                warning('        Total time: ' + str(tend - tstart))
+                                warning('Database copy time: ' + str(tend - tendw), file=lfh, flush=True)
+                                warning('        Total time: ' + str(tend - tstart), file=lfh, flush=True)
 
                                 if args.test:
                                     die("Test complete")
 
                                 copyObj = io.StringIO() # reset io string
 
-                    except Exception:
-                        warning("ERROR parsing variant", refSnpId)
-                        warning(lineCount, ":", line)
+                    except Exception as e:
+                        warning("ERROR parsing variant", refSnpId, file=lfh, flush=True)
+                        warning(lineCount, ":", line, file=lfh, flush=True)
+                        warning(str(e), file=lfh, flush=True)
                         raise
 
             # final commit / leftovers
@@ -279,12 +290,17 @@ def load_annotation(chromosome):
                 database.rollback()
                 message = "DONE - PARSED " + message + " -- rolling back"
 
-            warning(message)
+            warning(message, file=lfh, flush=True)
 
             mappedFile.close()
+        
+    database.close()
+    indexer.close()
+    lfh.close()
 
 
-def get_most_severe_consequence(allele):
+
+def get_most_severe_consequence(allele, vepParser):
     ''' retrieve most severe consequence from the VEP JSON Parser,
     for the specified allele; returns None if no consequences are found
     return first hit among transcript, then regulatory feature, then intergenic
@@ -299,7 +315,7 @@ def get_most_severe_consequence(allele):
     return None
 
 
-def get_adsp_ranked_allele_consequences(allele):
+def get_adsp_ranked_allele_consequences(allele, vepParser):
     ''' get dict of all ADSP ranked allele consequences '''
     adspConseq = {}
     for ctype in CONSEQUENCE_TYPES:
@@ -359,6 +375,7 @@ if __name__ == "__main__":
                         help="chromosome to load, e.g., 1, 2, M, X")
     parser.add_argument('--commitAfter', type=int, default=500,
                         help="commit after specified inserts")
+    parser.add_argument('--maxWorkers', default=10, type=int)
     parser.add_argument('--logAfter', type=int,
                         help="number of inserts to log after completion; will work best if factor/multiple of commitAfter")
     parser.add_argument('--verbose', action='store_true')
@@ -369,20 +386,10 @@ if __name__ == "__main__":
 
     VARIANT_COLUMNS = qw('chromosome location is_multi_allelic bin_index ref_snp_id metaseq_id allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
-    algInvocation = AlgorithmInvocation('load_dbsnp_vep_result.py', json.dumps(vars(args)), args.commit)
-    algInvocId = xstr(algInvocation.getAlgorithmInvocationId())
-    algInvocation.close()
-
-    warning("Algorithm Invocation ID", algInvocId)
-
-    vepParser = VepJsonParser(args.rankingFile, verbose=True)
-
-    indexer = BinIndex(args.gusConfigFile, verbose=False)
-
-    database = Database(args.gusConfigFile)
-    database.connect()
-
-    load_annotation(args.chr)
-
-    database.close()
-    indexer.close()
+    chrList = args.chr.split(',') if args.chr != 'all' \
+      else [c.value for c in Human]
+ 
+    with ProcessPoolExecutor(args.maxWorkers) as executor:
+        for c in chrList:
+            warning("Create and start thread for chromosome:", xstr(c))
+            executor.submit(load_annotation, c)

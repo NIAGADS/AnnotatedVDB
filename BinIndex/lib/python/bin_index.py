@@ -8,7 +8,7 @@ from psycopg2 import DatabaseError, ProgrammingError
 
 BIN_INDEX_SQL = """
 WITH bi AS (SELECT find_bin_index(%s, %s, %s) AS global_bin_path)
-SELECT br.chromosome, br.global_bin_path, br.location
+SELECT br.chromosome, br.global_bin_path, br.location, nlevel(br.global_bin_path) AS bin_level
 FROM BinIndexRef br, bi
 WHERE br.global_bin_path = bi.global_bin_path
 """
@@ -64,10 +64,11 @@ class BinIndex(object):
         if 'chr' not in chrm: chrm = 'chr' + xstr(chrm)
 
         if bool(self._currentBin): # if a current bin exists and the variant falls in it, return it
-            brange = self._currentBin['location']
-            if self._currentBin['chromosome'] == chrm \
-                and start in brange and end in brange:
-                return self._currentBin['global_bin_path']
+            if self._currentBin['bin_level'] >= 27: # otherwise may be a broad bin b/c of a indel; so need to do a lookup
+                brange = self._currentBin['location']
+                if self._currentBin['chromosome'] == chrm \
+                  and start in brange and end in brange:
+                    return self._currentBin['global_bin_path']
 
         # otherwise, find & return the new bin
         self._update_current_bin_index(chrm, start, end) # not in current bin, so update bin
