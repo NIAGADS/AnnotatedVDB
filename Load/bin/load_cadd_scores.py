@@ -23,11 +23,13 @@ from CBILDataCommon.Util.utils import qw, xstr, warning, die
 from CBILDataCommon.Util.postgres_dbi import Database
 
 from AnnotatedVDB.Util.cadd_updater import CADDUpdater
+from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
 
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
 from AnnotatedVDB.Util.chromosomes import Human
+
 
 def update_variant_record(record, updater, isIndel): 
     metaseqId = record['metaseq_id']
@@ -57,13 +59,71 @@ def update_variant_record(record, updater, isIndel):
             warning(metaseqId, "- not matched", file=updater.lfh(), flush=True)
 
 
- 
+def update_variant_records_from_vcf():
+    ''' lookup and update variant records from a VCF file 
+    assuming the load by file was called by a plugin, so this variant has already been
+    verified to be new to the resource; no need to check alternative metaseq IDs'''
+
+    logFileName = path.join(args.logFilePath, args.file + '-cadd.log')
+    cupdater = CADDUpdater(logFileName, args.databaseDir)
+
+    database = Database(args.gusConfigFile)
+    database.connect()
+
+    lineCount = 0
+    with database.cursor() as updateCursor, \
+      open(args.file, 'r') as fh:
+        try:
+            for line in fh:
+                lineCount = lineCount + 1
+                entry = VcfEntryParser(line.rstrip())
+                
+                refAllele = entry.get('ref')
+                altAllele = entry.get('alt')
+                chrom = xstr(entry.get('chrom'))
+                if chrom == 'MT':
+                    chrom = 'M'
+                position = int(entry.get('pos'))
+                metaseqId = ':'.join((chrom, xstr(position), refAllele, altAllele))
+
+                record = {"metaseq_id" : metaseqId}  # mimic "record"
+
+                if len(refAllele) > 1 or len(altAllele) > 1: # only doing SNVs
+                    update_variant_record(record, cupdater, INDEL)
+                else:
+                    update_variant_record(record, cupdater, SNV)
+
+            if lineCount % 500 == 0:
+                warning("Parsed", lineCount, "lines.", file=cupdater.lfh(), flush=True)
+
+            if args.commit:
+                warning("Done Processing File; Starting Update", file=cupdater.lfh(), flush=True)
+                updateCursor.execute(cupdater.sql_buffer_str())
+            else:
+                database.rollback()
+
+                warning("Processed:", lineCount, "- SNVs:",
+                        cupdater.get_update_count(SNV), "- INDELS:", cupdater.get_update_count(INDEL),
+                        " - Not Matched:", cupdater.get_not_matched_count(),
+                        file=cupdater.lfh(), flush=True)
+
+        except Exception as e:
+            warning(e, entry, file=cupdater.lfh(), flush=True)
+            if args.commit:
+                database.commit()
+            else:
+                database.rollback()
+            database.close()
+            raise
+        
+            
 def update_variant_records(chromosome):
     chrLabel = 'chr' + xstr(chromosome)
 
     logFileName = path.join(args.logFilePath, chrLabel + '.log')
-    cupdater = CADDUpdater(chrLabel, logFileName, args.databaseDir)
-  
+    cupdater = CADDUpdater(logFileName, args.databaseDir)
+    cupdater.setChrm(chrLabel)
+
     selectSQL = "SELECT metaseq_id, cadd_scores FROM Variant_" + chrLabel;
 
     database = Database(args.gusConfigFile)
@@ -150,7 +210,7 @@ def update_variant_records(chromosome):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="update CADD scores in DB specified chromosome")
     parser.add_argument('-d', '--databaseDir', help="directory containg CADD database +tabindex files", required=True)
-    parser.add_argument('-f', '--file', help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expect variants to be identified by metaseq_id")
+    parser.add_argument('-f', '--file', help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects a VCF file")
     parser.add_argument('-c', '--chr', help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified", default='all')
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
@@ -174,7 +234,7 @@ if __name__ == "__main__":
  
     if args.file:
         die("To be implemented")
-        # update_variant_records_from_file()
+        update_variant_records_from_vcf()
 
     if len(chrList) == 1:
         update_variant_records(chrList[0])

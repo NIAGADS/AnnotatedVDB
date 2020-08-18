@@ -15,18 +15,22 @@ CADD_SNV_FILE = "whole_genome_SNVs.tsv.gz"
 class CADDUpdater(object):
     ''' utils for slicing CADD tbx database '''
 
-    def __init__(self, chrm, logFileName, databasePath):
+    def __init__(self, logFileName, databasePath):
         self._path = databasePath
         self._snv = self._connect(CADD_SNV_FILE)
         self._indel = self._connect(CADD_INDEL_FILE)
         self._sql_buffer = []
         self._snv_update_count = 0
         self._indel_update_count = 0
-        self._chrm = chrm
+        self._chrm = None
         self._log_file = logFileName
         self._lfh = None 
         self._update_count = 0 
         self._not_matched_count = 0
+
+
+    def setChrm(self, chrm):
+        self._chrm = chrm;
 
 
     def buffered_variant_count(self):
@@ -84,7 +88,11 @@ class CADDUpdater(object):
 
 
     def buffer_update_sql(self, metaseqId, evidence):
-        sql = "UPDATE Variant_" + self._chrm \
+        chrm, pos, ref, alt = metaseqId.split(':')
+        if self._chrm is not None:
+            chrm = self._chrm
+
+        sql = "UPDATE Variant_" + chrm \
           + " v SET cadd_scores = '" + json.dumps(evidence) + "' WHERE v.metaseq_id = '" + metaseqId + "'"
         self._sql_buffer.append(sql)
 
