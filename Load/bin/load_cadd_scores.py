@@ -18,6 +18,7 @@ import json
 import pysam
 import random
 import psycopg2
+import sys
 
 from CBILDataCommon.Util.utils import qw, xstr, warning, die
 from CBILDataCommon.Util.postgres_dbi import Database
@@ -64,8 +65,7 @@ def update_variant_records_from_vcf():
     assuming the load by file was called by a plugin, so this variant has already been
     verified to be new to the resource; no need to check alternative metaseq IDs'''
 
-    logFileName = path.join(args.logFilePath, args.file + '-cadd.log')
-    cupdater = CADDUpdater(logFileName, args.databaseDir)
+    cupdater = CADDUpdater(args.logFile, args.databaseDir)
 
     database = Database(args.gusConfigFile)
     database.connect()
@@ -109,10 +109,8 @@ def update_variant_records_from_vcf():
 
         except Exception as e:
             warning(e, entry, file=cupdater.lfh(), flush=True)
-            if args.commit:
-                database.commit()
-            else:
-                database.rollback()
+            print("FAIL", file=sys.stdout)
+            database.rollback()
             database.close()
             raise
         
@@ -214,7 +212,8 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--chr', help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified", default='all')
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
-    parser.add_argument('--logFilePath')
+    parser.add_argument('--logFilePath', help='generate formulaic log files and store in the specified path')
+    parser.add_argument('--logFile', help='specify full path to log file')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--veryVerbose', action='store_true')
     parser.add_argument('--gusConfigFile',
@@ -245,6 +244,7 @@ if __name__ == "__main__":
                 warning("Create and start thread for chromosome:", xstr(c))
                 executor.submit(update_variant_records, c)
 
-
+    if args.file:
+        print("SUCCCESS", file=sys.stdout)
 
 
