@@ -1,6 +1,7 @@
 CREATE OR REPLACE FUNCTION record_primary_key(v Variant)
 RETURNS TEXT AS $$
-	SELECT v.metaseq_id || COALESCE('_' || v.ref_snp_id, '') 
+	SELECT CASE WHEN LENGTH(v.metaseq_id) > 350 THEN LEFT(v.metaseq_id, 347) || '...' ELSE v.metaseq_id END 
+	|| COALESCE('_' || v.ref_snp_id, '') 
 $$ LANGUAGE SQL stable;
 
 CREATE OR REPLACE FUNCTION dbsnp_build(v Variant)
