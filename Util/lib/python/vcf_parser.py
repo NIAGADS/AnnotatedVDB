@@ -58,7 +58,10 @@ class VcfEntryParser(object):
     def get_info(self, key):
         ''' get the INFO value associated with the key '''
         self.__verify_entry()
-        return self._entry['info'][key]
+        if key in self._entry['info']:
+            return self._entry['info'][key]
+        else:
+            return None
 
 
     def normalize_alleles(self, ref, alt, snvDivMinus=False):
@@ -108,7 +111,11 @@ class VcfEntryParser(object):
         aLength = len(alt)
 
         position = int(self.get('pos'))
-        rsPosition = int(self.get_info('RSPOS'))
+        rsPosition = self.get_info('RSPOS')
+        if rsPosition is None:
+            rsPosition = position
+        else:
+            rsPosition = int(rsPosition)
 
         if rLength == 1 and aLength == 1: # SNV
             return position

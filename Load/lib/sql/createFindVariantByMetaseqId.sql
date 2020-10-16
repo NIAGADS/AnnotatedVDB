@@ -3,12 +3,14 @@
 CREATE OR REPLACE FUNCTION find_variant_by_metaseq_id(metaseqId TEXT, firstHitOnly BOOLEAN DEFAULT FALSE)
        RETURNS TABLE(record_primary_key TEXT, ref_snp_id CHARACTER VARYING, metaseq_id TEXT,
        	             has_genomicsdb_annotation BOOLEAN, is_adsp_variant BOOLEAN, bin_index LTREE) AS $$
+DECLARE _array TEXT ARRAY 
 BEGIN
+	SELECT regexp_split_to_array(metaseqId, ':') INTO _array;
 	RETURN QUERY
 	SELECT v.record_primary_key, v.ref_snp_id, v.metaseq_id, v.has_genomicsdb_annotation, v.is_adsp_variant,
 	v.bin_index
 	FROM Variant v
-	WHERE v.metaseq_id = metaseqId
+	WHERE /*v.metaseq_id = metaseqId OR */ v.metaseq_id = CONCATE(_array[1], ':', _array[2], ':', _array[4], ':', _array[3])
 	AND chromosome = 'chr' || split_part(metaseqId, ':', 1)::text
 	LIMIT CASE WHEN firstHitOnly THEN 1 END;
 END;

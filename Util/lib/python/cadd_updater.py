@@ -91,6 +91,8 @@ class CADDUpdater(object):
         chrm, pos, ref, alt = metaseqId.split(':')
         if self._chrm is not None:
             chrm = self._chrm
+        else:
+            chrm = 'chr' + xstr(chrm)
 
         sql = "UPDATE Variant_" + chrm \
           + " v SET cadd_scores = '" + json.dumps(evidence) + "' WHERE v.metaseq_id = '" + metaseqId + "'"
