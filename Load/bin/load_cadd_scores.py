@@ -72,9 +72,12 @@ def update_variant_records_from_vcf():
 
     lineCount = 0
     with database.cursor() as updateCursor, \
-      open(args.file, 'r') as fh:
+      open(args.vcfFile, 'r') as fh:
         try:
             for line in fh:
+                if line.startswith("#"):
+                    continue
+
                 lineCount = lineCount + 1
                 entry = VcfEntryParser(line.rstrip())
                 
@@ -93,28 +96,43 @@ def update_variant_records_from_vcf():
                 else:
                     update_variant_record(record, cupdater, SNV)
 
-            if lineCount % 500 == 0:
-                warning("Parsed", lineCount, "lines.", file=cupdater.lfh(), flush=True)
+                if lineCount % args.commitAfter == 0:
+                    warning("Processed:", lineCount, "- SNVs:",
+                            cupdater.get_update_count(SNV), "- INDELS:", cupdater.get_update_count(INDEL),
+                            " - Not Matched:", cupdater.get_not_matched_count(),
+                            file=cupdater.lfh(), flush=True)
 
-            if args.commit:
-                warning("Done Processing File; Starting Update", file=cupdater.lfh(), flush=True)
+                    updateCursor.execute(cupdater.sql_buffer_str())
+
+                    if args.commit:
+                        database.commit()
+                    else:
+                        database.rollback()
+                    cupdater.clear_update_sql()
+
+            if cupdater.buffered_variant_count() > 0:  # trailing
                 updateCursor.execute(cupdater.sql_buffer_str())
-            else:
-                database.rollback()
 
-                warning("Processed:", lineCount, "- SNVs:",
-                        cupdater.get_update_count(SNV), "- INDELS:", cupdater.get_update_count(INDEL),
-                        " - Not Matched:", cupdater.get_not_matched_count(),
-                        file=cupdater.lfh(), flush=True)
+                if args.commit:
+                    database.commit()
+                else:
+                    database.rollback()
+
+            warning("DONE - Updated SNVs:", cupdater.get_update_count(SNV), "- Updated INDELS:",
+                    cupdater.get_update_count(INDEL), 
+                    "- Not Matched:", cupdater.get_not_matched_count(), file=cupdater.lfh(), flush=True)
+
+            cupdater.close_lfh()
 
         except Exception as e:
             warning(e, entry, file=cupdater.lfh(), flush=True)
-            print("FAIL", file=sys.stdout)
             database.rollback()
             database.close()
+            print("FAIL", file=sys.stdout)
             raise
+
         
-            
+           
 def update_variant_records(chromosome):
     chrLabel = 'chr' + xstr(chromosome)
 
@@ -180,12 +198,12 @@ def update_variant_records(chromosome):
                             "- Skipped:", skipCount, " - Not Matched:", cupdater.get_not_matched_count(),
                             file=cupdater.lfh(), flush=True)
 
-            if args.commit: # trailing
-                if cupdater.buffered_variant_count() > 0:
-                    updateCursor.execute(cupdater.sql_buffer_str())
+            if cupdater.buffered_variant_count() > 0:
+                updateCursor.execute(cupdater.sql_buffer_str())
+                if args.commit: # trailing
                     database.commit()
-            else:
-                database.rollback()
+                else:
+                    database.rollback()
 
             warning("DONE - Updated SNVs:", cupdater.get_update_count(SNV), "- Updated INDELS:",
                     cupdater.get_update_count(INDEL), "- Skipped", skipCount,
@@ -201,6 +219,7 @@ def update_variant_records(chromosome):
             database.close()
             raise
 
+    
     database.close()
 
 
@@ -208,7 +227,7 @@ def update_variant_records(chromosome):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="update CADD scores in DB specified chromosome")
     parser.add_argument('-d', '--databaseDir', help="directory containg CADD database +tabindex files", required=True)
-    parser.add_argument('-f', '--file', help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects a VCF file")
+    parser.add_argument('--vcfFile', help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects full path to a VCF file")
     parser.add_argument('-c', '--chr', help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified", default='all')
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
@@ -223,28 +242,26 @@ if __name__ == "__main__":
 
     selectSingleVariantSQL = "SELECT v.record_primary_key FROM Variant v WHERE metaseq_id = %s AND chromosome = 'chr' || split_part(%s, ':', 1)::text"
     
-    chrList = args.chr.split(',') if args.chr != 'all' \
-      else [c.value for c in Human]
-
-    random.shuffle(chrList) # so that not all large chrms are done at once if all is selected
-
     INDEL = True
     SNV = False
  
-    if args.file:
-        die("To be implemented")
+    if args.vcfFile:
         update_variant_records_from_vcf()
 
-    if len(chrList) == 1:
-        update_variant_records(chrList[0])
-
     else:
-        with ProcessPoolExecutor(args.maxWorkers) as executor:
-            for c in chrList:
-                warning("Create and start thread for chromosome:", xstr(c))
-                executor.submit(update_variant_records, c)
+        chrList = args.chr.split(',') if args.chr != 'all' \
+          else [c.value for c in Human]
 
-    if args.file:
-        print("SUCCCESS", file=sys.stdout)
+        random.shuffle(chrList) # so that not all large chrms are done at once if all is selected
+
+        if len(chrList) == 1:
+            update_variant_records(chrList[0])
+
+        else:
+            with ProcessPoolExecutor(args.maxWorkers) as executor:
+                for c in chrList:
+                    warning("Create and start thread for chromosome:", xstr(c))
+                    executor.submit(update_variant_records, c)
 
 
+    print("SUCCESS", file=sys.stdout)

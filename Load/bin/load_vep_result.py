@@ -3,6 +3,8 @@
 """
 Loads AnnotatedVDB from JSON output from running VEP on a non-dbSNP VCF
 NOTE: assumes variants were not mapped to a refSNP
+NOTE: to skip check against DB to avoid duplicates and to speed up (NOT RECOMMENDED)
+use the --skipVerification flag
 """
 from __future__ import print_function
 
@@ -17,14 +19,23 @@ from datetime import datetime
 
 from os import path
 
-from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN
+from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN, truncate
 from CBILDataCommon.Util.postgres_dbi import Database
-from CBILDataCommon.Util.exceptions import print_exception
 
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
 from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
+
+def duplicate(metaseqId, dcursor):
+    ''' test against db '''
+    if args.skipVerification:
+        return False
+    sql = "SELECT * FROM find_variant_by_metaseq_id(%s)"
+    dcursor.execute(sql, (metaseqId,))
+    for record in dcursor:
+        return True # if there is a hit, there is a duplicate
+    return False # if not, no duplicate
 
 
 def get_frequencies():
@@ -53,13 +64,12 @@ def load_annotation():
     variantCount = 0
     skipCount = 0
 
-    resume = True if args.resumeAfter is None else False
-
-    previousSnp = None
-    with database.cursor() as cursor:
+    warning("Parsing variants from:", fname) # should print to plugin log
+    with database.cursor() as cursor, database.cursor("RealDictCursor") as dcursor:
         copyObj = io.StringIO()
         with open(fname, 'r') as fh:
-            with open(args.logFile) as lfh:
+            with open(args.logFile, 'w') as lfh:
+                warning("Parsing variants from:", fname, file=lfh, flush=True)
                 for line in fh:
                     lineCount = lineCount + 1
                     vepResult = json.loads(line.rstrip())
@@ -72,47 +82,44 @@ def load_annotation():
                     # so replace w/the parsed entry; which is now a dict
                     vepResult['input'] = entry.get_entry()
 
-                    if lineCount == 1 or variantCount % 500 == 0:
+                    if lineCount == 1 or variantCount % 5000 == 0:
                         warning('Processing new copy object', file=lfh, flush=True)
                         tstart = datetime.now()
 
                     refAllele = entry.get('ref')
                     altAllele = entry.get('alt')  # assumes no multialleic variants
 
+                    if refAllele == '0': # happens sometimes
+                        refAllele = '?'
+                    if altAllele == '0':
+                        altAllele = '?'
+
+                    truncatedRef = truncate(refAllele, 20)
+                    truncatedAlt = truncate(altAllele, 20)
+                  
                     chrom = xstr(entry.get('chrom'))
                     if chrom == 'MT':
                         chrom = 'M'
 
                     position = int(entry.get('pos'))
 
-                    metaseqId = ':'.join((chrom, xstr(position), refAllele, altAllele))
-
-                    if not resume:
-                        if previousSnp == args.resumeAfter:
-                            warning(previousSnp, metaseqId, file=lfh, flush=True)
-                            warning("Resuming after:", args.resumeAfter, "- SKIPPED",
-                                    skipCount, "lines.", file=lfh, flush=True)
-                            resume = True
-                        else:
-                            previousSnp = metaseqId
-                            skipCount = skipCount + 1
-                            continue
-
                     try:
+                        metaseqId = ':'.join((chrom, xstr(position), truncatedRef, truncatedAlt))
+
+                        if duplicate(metaseqId, dcursor): 
+                            warning("SKIPPING:",metaseqId, "- already loaded.", file=lfh, flush=True)
+                            continue
 
                         vepParser.set('ref_allele', refAllele)
                         vepParser.set('alt_allele', altAllele)
-
+                     
                         frequencies = get_frequencies()
-                        warning(frequencies, file=lfh, flush=True)
-                        die("DEBUG - done")
                         vepParser.adsp_rank_and_sort_consequences()
 
                         # for each allele
                         variantCount = variantCount + 1
 
                         positionEnd = entry.infer_variant_end_location(altAllele)
-
                         binIndex = indexer.find_bin_index(chrom, position, positionEnd)
 
                         # NOTE: VEP uses normalized alleles to indicate variant_allele
@@ -133,10 +140,11 @@ def load_annotation():
                           algInvocId
                           ))
 
+
                         copyObj.write(valueStr + '\n')
 
-                        if variantCount % 500 == 0:
-                            warning("PARSED", variantCount, file=lfh, flush=True)
+                        if variantCount % 5000 == 0:
+                            warning("FOUND", variantCount, " new variants", file=lfh, flush=True)
                             tendw = datetime.now()
                             warning('Copy object prepared in ' + str(tendw - tstart) + '; ' +
                                     str(copyObj.tell()) + ' bytes; transfering to database',
@@ -154,8 +162,8 @@ def load_annotation():
                                 database.rollback()
                                 message = "PARSED " + message + " -- rolling back"
 
-                            if variantCount % 500 == 0:
-                                warning(message, "; up to = ", metaseqId, file=lfh, flush=True)
+
+                            warning(message, "; up to = ", metaseqId, file=lfh, flush=True)
 
                             tend = datetime.now()
                             warning('Database copy time: ' + str(tend - tendw), file=lfh, flush=True)
@@ -169,19 +177,19 @@ def load_annotation():
                         print("FAIL", file=sys.stdout)
                         raise
 
-            # final commit / leftovers
-            copyObj.seek(0)
-            cursor.copy_from(copyObj, 'variant', sep='#', null="NULL", columns=VARIANT_COLUMNS)
-            message = '{:,}'.format(variantCount)
+                # final commit / leftovers
+                copyObj.seek(0)
+                cursor.copy_from(copyObj, 'variant', sep='#', null="NULL", columns=VARIANT_COLUMNS)
+                message = '{:,}'.format(variantCount)
 
-            if args.commit:
-                database.commit()
-                message = "DONE - COMMITTED " + message
-            else:
-                database.rollback()
-                message = "DONE - PARSED " + message + " -- rolling back"
-
-            warning(message, file=lfh, flush=True)
+                if args.commit:
+                    database.commit()
+                    message = "DONE - COMMITTED " + message
+                else:
+                    database.rollback()
+                    message = "DONE - PARSED " + message + " -- rolling back"
+                    
+                warning(message, file=lfh, flush=True)
 
 
 
@@ -247,20 +255,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='load AnnotatedDB from  JSON output of VEP against a non-dbSNP VCF; assumes no multiallelic variants')
     parser.add_argument('-i', '--inputFile',
                         help="full path to file containing VEP results", required=True)
+    parser.add_argument('--logFile', required=True)
     parser.add_argument('-r', '--rankingFile', required=True,
                         help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
     parser.add_argument('--gusConfigFile',
-                        '--full path to gus config file, else assumes $GUS_HOME/config/gus.config')
-    parser.add_argument('--resumeAfter',
-                        help="refSnpId after which to resume load (log lists lasts committed refSNP)")
+                        help="full path to gus config file, else assumes $GUS_HOME/config/gus.config")
+    parser.add_argument('--skipVerification', help="skip check against DB (for avoiding duplications")
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
 
     VARIANT_COLUMNS = qw('chromosome location bin_index metaseq_id allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
-    algInvocation = AlgorithmInvocation('load_vep_result.py', json.dumps(vars(args)), args.commit)
+    algInvocation = AlgorithmInvocation('load_vep_result.py', json.dumps(vars(args)), args.commit, args.gusConfigFile)
     algInvocId = xstr(algInvocation.getAlgorithmInvocationId())
     algInvocation.close()
 
