@@ -17,3 +17,9 @@ CREATE OR REPLACE FUNCTION variant_class_abbrev(v Variant)
 RETURNS TEXT AS $$
 	SELECT v.vep_output->>'variant_class'
 $$ LANGUAGE SQL stable;
+
+
+CREATE OR REPLACE FUNCTION adsp_ms_consequence(v Variant) 
+RETURNS TEXT AS $$
+	SELECT DISTINCT array_to_string(json_array_cast_to_text((v.adsp_most_severe_consequence->'consequence_terms')::json), ',')  
+$$ LANGUAGE SQL stable;
