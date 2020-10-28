@@ -31,8 +31,11 @@ def duplicate(metaseqId, dcursor):
     ''' test against db '''
     if args.skipVerification:
         return False
-    sql = "SELECT * FROM find_variant_by_metaseq_id(%s)"
-    dcursor.execute(sql, (metaseqId,))
+    sql = "SELECT metaseq_id FROM  Variant WHERE LEFT(metaseq_id, 50) = LEFT(%s, 50)"
+    sql = sql + " AND chromosome = 'chr' || split_part(%s,':',1)"
+    sql = sql + " AND metaseq_id = %s"
+
+    dcursor.execute(sql, (metaseqId, metaseqId, metaseqId))
     for record in dcursor:
         return True # if there is a hit, there is a duplicate
     return False # if not, no duplicate
@@ -94,8 +97,8 @@ def load_annotation():
                     if altAllele == '0':
                         altAllele = '?'
 
-                    truncatedRef = truncate(refAllele, 20)
-                    truncatedAlt = truncate(altAllele, 20)
+                    # truncatedRef = truncate(refAllele, 20)
+                    # truncatedAlt = truncate(altAllele, 20)
                   
                     chrom = xstr(entry.get('chrom'))
                     if chrom == 'MT':
@@ -104,7 +107,8 @@ def load_annotation():
                     position = int(entry.get('pos'))
 
                     try:
-                        metaseqId = ':'.join((chrom, xstr(position), truncatedRef, truncatedAlt))
+                        # metaseqId = ':'.join((chrom, xstr(position), truncatedRef, truncatedAlt))
+                        metaseqId = ':'.join((chrom, xstr(position), refAllele, altAllele))
 
                         if duplicate(metaseqId, dcursor): 
                             warning("SKIPPING:",metaseqId, "- already loaded.", file=lfh, flush=True)

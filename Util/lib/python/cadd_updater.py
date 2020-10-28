@@ -95,7 +95,10 @@ class CADDUpdater(object):
             chrm = 'chr' + xstr(chrm)
 
         sql = "UPDATE Variant_" + chrm \
-          + " v SET cadd_scores = '" + json.dumps(evidence) + "' WHERE v.metaseq_id = '" + metaseqId + "'"
+          + " v SET cadd_scores = '" + json.dumps(evidence) + "'" \
+          + " WHERE left(v.metaseq_id, 50) = left('" + metaseqId + "',50)" \
+          + " AND chromosome = '" + chrm + "'" \
+          + " AND v.metaseq_id = '" + metaseqId + "'"
         self._sql_buffer.append(sql)
 
 

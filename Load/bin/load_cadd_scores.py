@@ -223,7 +223,6 @@ def update_variant_records(chromosome):
     database.close()
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="update CADD scores in DB specified chromosome")
     parser.add_argument('-d', '--databaseDir', help="directory containg CADD database +tabindex files", required=True)
@@ -239,8 +238,6 @@ if __name__ == "__main__":
                         help="GUS config file. If not provided, assumes default: $GUS_HOME/conf/gus.config")
     parser.add_argument('--commit', action='store_true')
     args = parser.parse_args()
-
-    selectSingleVariantSQL = "SELECT v.record_primary_key FROM Variant v WHERE metaseq_id = %s AND chromosome = 'chr' || split_part(%s, ':', 1)::text"
     
     INDEL = True
     SNV = False
