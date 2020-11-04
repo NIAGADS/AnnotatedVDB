@@ -20,8 +20,8 @@ import random
 import psycopg2
 import sys
 
-from CBILDataCommon.Util.utils import qw, xstr, warning, die
-from CBILDataCommon.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import qw, xstr, warning, die
+from GenomicsDBData.Util.postgres_dbi import Database
 
 from AnnotatedVDB.Util.cadd_updater import CADDUpdater
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser

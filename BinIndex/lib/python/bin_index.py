@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 #pylint: disable=multiple-statements,invalid-name
 
-from CBILDataCommon.Util.utils import xstr, warning
-from CBILDataCommon.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import xstr, warning
+from GenomicsDBData.Util.postgres_dbi import Database
 from psycopg2.extras import NumericRange
 from psycopg2 import DatabaseError, ProgrammingError
 

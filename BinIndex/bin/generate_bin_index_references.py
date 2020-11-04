@@ -10,8 +10,8 @@ import argparse
 
 from psycopg2.extras import NumericRange
 
-from CBILDataCommon.Util.utils import warning, xstr, die
-from CBILDataCommon.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import warning, xstr, die
+from GenomicsDBData.Util.postgres_dbi import Database
 from collections import OrderedDict
 
 def read_chr_map():

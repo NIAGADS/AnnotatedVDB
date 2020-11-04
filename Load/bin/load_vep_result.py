@@ -19,8 +19,8 @@ from datetime import datetime
 
 from os import path
 
-from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN, truncate
-from CBILDataCommon.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN, truncate
+from GenomicsDBData.Util.postgres_dbi import Database
 
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation

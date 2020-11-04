@@ -3,8 +3,8 @@ utils for parsing VEP JSON output
 '''
 # pylint: disable=line-too-long,invalid-name
 
-from CBILDataCommon.Util.utils import qw, warning, to_numeric, die
-from CBILDataCommon.Util.auto_viv_dict import AutoVivificationDict
+from GenomicsDBData.Util.utils import qw, warning, to_numeric, die
+from GenomicsDBData.Util.auto_viv_dict import AutoVivificationDict
 from collections import Counter, OrderedDict
 import csv
 from operator import itemgetter

@@ -3,7 +3,7 @@ utils for parsing VCF files
 '''
 #pylint: disable=line-too-long,invalid-name
 
-from CBILDataCommon.Util.utils import qw, die, warning
+from GenomicsDBData.Util.utils import qw, die, warning
 
 class VcfEntryParser(object):
     ''' utils for parse a single line of a vcf file '''

@@ -23,9 +23,9 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 from os import path
 
-from CBILDataCommon.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN
-from CBILDataCommon.Util.postgres_dbi import Database
-from CBILDataCommon.Util.exceptions import print_exception
+from GenomicsDBData.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN
+from GenomicsDBData.Util.postgres_dbi import Database
+from GenomicsDBData.Util.exceptions import print_exception
 
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation

@@ -1,7 +1,7 @@
 """ class to handle algorithm invocation table transactions """
 #!pylint: disable=invalid-name
 
-from CBILDataCommon.Util.postgres_dbi import Database
+from GenomicsDBData.Util.postgres_dbi import Database
 
 
 class AlgorithmInvocation(object):

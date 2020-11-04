@@ -6,7 +6,7 @@ utils for parsing CADD tbx file
 import pysam
 import json
 from os import path
-from CBILDataCommon.Util.utils import qw, die, warning, xstr
+from GenomicsDBData.Util.utils import qw, die, warning, xstr
 
 CADD_INDEL_FILE = "InDels.tsv.gz"
 CADD_SNV_FILE = "whole_genome_SNVs.tsv.gz"
