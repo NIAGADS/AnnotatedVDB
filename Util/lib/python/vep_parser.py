@@ -199,10 +199,14 @@ class VepJsonParser(object):
                         else:
                             frequencies = self.__extract_frequencies(covar)
                             fCount = fCount + 1
-            if fCount > 1:
-                raise NotImplementedError("More than one non-COSMIC co-located variant; can't extract frequencies")
-            else:
-                return frequencies # which may be None
+            if fCount > 1: 
+                # based on experience, when this happens, involves multiple refsnps mapped to location,
+                # so all frequencies should be equal
+                # let's just print a warning
+                inputVariant = self._annotation['input'].replace('\t', ' ')
+                warning("WARNING", "INDEL " + inputVariant + "mapped to multiple refSNPs/frequencies based on location not alleles")
+            # else:
+            return frequencies # which may be None
         
         elif 'frequencies' in cv[0]:
             frequencies = self.__extract_frequencies(cv[0])
