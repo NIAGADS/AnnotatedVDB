@@ -1,5 +1,20 @@
 -- finds most specific inclusive bin
 
+CREATE OR REPLACE FUNCTION get_chr_size(chr VARCHAR)
+       RETURNS BIGINT AS $$
+DELCARE 
+	chrSize BIGINT;
+BEGIN
+	SELECT UPPER(location) INTO chrSize
+	FROM BinINdexRef
+	WHERE chromosome = chr
+	AND level = 0;
+	
+	RETURN chrSize;
+END;
+$$
+LANGUAGE plpgsql
+
 CREATE OR REPLACE FUNCTION find_bin_index(chr VARCHAR, loc_start BIGINT, loc_end BIGINT) 
         RETURNS LTREE AS $$
 DECLARE 
