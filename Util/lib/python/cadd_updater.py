@@ -123,5 +123,8 @@ class CADDUpdater(object):
         b/c will be using this more with the indel file'''
         tbxFh = self._indel if indels else self._snv
         caddChr = 'MT' if chrm == 'M' else xstr(chrm)
-        return tbxFh.fetch(caddChr, int(position) - 1, int(position), parser=pysam.asTuple())
-
+        try:
+            return tbxFh.fetch(caddChr, int(position) - 1, int(position), parser=pysam.asTuple())
+        except ValueError as e: # happens sometimes on chrm M/MT
+            warning("WARNING", e)
+            return []
