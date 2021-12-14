@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+
+'''
+install AnnotatedVDB Schema
+'''
+
+from __future__ import print_function
+from __future__ import with_statement
+import argparse # parse command line args
+
+from sys import stdout, exit
+from os import environ, path
+from subprocess import check_call
+
+# from $GUS_HOME/lib/python --> add to python path
+
+from GenomicsDBData.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import qw, warning, verify_path, die
+
+SCHEMA_DIR = 'annotatedvdb_schema'
+TABLES = '''
+createAlgorithmInvocation.sql
+createVariant.sql
+'''
+
+TABLES_SQL_FILES = qw(TABLES)
+
+# TODO: ADD functions
+
+
+CREATE_SCHEMA_SQL_FILE = 'createAnnotatedVDBSchema.sql'
+#DROP_SCHEMA_SQL_FILE = 'dropEntireSchema.sql'
+
+FILE_PATH = path.join(environ['GUS_HOME'], 'lib', 'sql')
+
+def run_sql(sFile):
+    '''
+    run selected sql file
+    '''
+    warning("Executing SQL File: " + sFile)
+
+    if not verify_path(sFile):
+        die("File not found: " + sFile)
+
+    # -v ON_ERROR_STOP=ON : stop on first error
+    # --no-psqlrc: ignore start-up file
+    database.set_pgpassword()
+
+    cmd = ['psql', '--no-psqlrc',
+           '-d', database.name(),
+           '-U', database.user,
+           '-v', 'ON_ERROR_STOP=ON',
+           '--file', sFile]
+        
+    if database.port() is not None:
+        cmd.append('-p')
+        cmd.append(database.port())
+    if database.host() is not None:
+        cmd.append('-h')
+        cmd.append(database.host())
+
+    if args.verbose:
+        cmd.append('-a') # echo all
+    else:
+        cmd.append('-b') # echo only errors
+
+    # log = sqlFile.replace('.sql', '.log')
+    # cmd.append("2>&1 " + log) # redirect stdout & stderr
+
+    if args.verbose:
+        warning(cmd)
+
+    check_call(cmd) # runs command and waits for it to complete
+    database.reset_pgpassword()
+  
+    
+
+def verify_database(schema, db):
+    '''
+    verify database before dropping schemas
+    '''
+    verify = raw_input("\nYou are about to UNINSTALL the %s on:\n  %s\nType the name of the instance to confirm: " % (schema, db.name()) )
+    if verify != db.name():
+        die("You did not correctly confirm the db instance.\n")
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description="Install the Annotated VDB schema")
+    parser.add_argument('--gusConfigFile',
+                        help="GUS config file. If not provided, assumes default: $GUS_HOME/conf/gus.config")
+    parser.add_argument('--createSchema', help="create AnnotatedVDB schema", action='store_true')
+    parser.add_argument('--createTables', help="create NIAGADS tables", action='store_true')
+    parser.add_argument('-v', '--verbose', help="verbose output?", action='store_true')
+    parser.add_argument('-p', '--psql', help="full path to psql executeable if not standard 'psql'", default="psql")
+    
+    args =  parser.parse_args()
+    
+    database = Database(args.gusConfigFile)
+
+    #if args.dropNiagads:
+    #   verify_database('NIAGADS', database)
+
+    # elif args.dropNiagads:
+    #     filePath = path.join(FILE_PATH, NIAGADS_DIR, DROP_NIAGADS_SCHEMA_SQL_FILE)
+    #     run_sql(filePath)
+
+    if args.createSchema:
+        filePath = path.join(FILE_PATH, SCHEMA_DIR, CREATE_SCHEMA_SQL_FILE)
+        run_sql(filePath)
+
+    elif args.createTables:
+        for sqlFile in TABLES_SQL_FILES:
+            filePath = path.join(FILE_PATH, SCHEMA_DIR, 'tables', sqlFile)
+            run_sql(filePath)
+
+    else:
+        die("Must specify an option to drop, patch, or create;\n" 
+                + "Run installNiagadsSchema with the --help/-h option to print full usage.")
+
