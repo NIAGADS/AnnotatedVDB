@@ -62,50 +62,14 @@ class VcfEntryParser(object):
             return self._entry['info'][key]
         else:
             return None
-
-
-    def normalize_alleles(self, ref, alt, snvDivMinus=False):
-        ''' remove leftmost alleles that are equivalent between
-        the ref & alt alleles; e.g. CAGT/CG <-> AGT/G
-        snvDivMinux -- return '-' for SNV deletion when True,
-        otherwise return empty string
-        '''
-
-        rLength = len(ref)
-        aLength = len(alt)
-
-        if rLength == 1 and aLength == 1:
-            return (ref, alt)
-        
-        lastMatchingIndex = - 1
-        for i in range(rLength):
-            r = ref[i:i + 1]
-            a = alt[i:i + 1]
-            if r == a:
-                lastMatchingIndex = i
-            else:
-                break
-
-        if lastMatchingIndex >= 0:
-            normAlt = alt[lastMatchingIndex + 1:len(alt)]
-            if not normAlt and snvDivMinus:
-                normAlt = '-'
-            normRef = ref[lastMatchingIndex + 1:len(ref)]
-            if not normRef and snvDivMinus:
-                normRef = '-'
-            return (normRef, normAlt)
         
 
-        return (ref, alt)
-
-
-    def infer_variant_end_location(self, alt):
+    def infer_variant_end_location(self, alt, normRef):
         ''' infer span of indels/deletions for a 
         specific alternative allele, modeled off 
         GUS Perl VariantAnnotator, see for more info'''
         self.__verify_entry()
         ref = self.get('ref')
-        normRef, normAlt = self.normalize_alleles(ref, alt)
 
         rLength = len(ref)
         aLength = len(alt)

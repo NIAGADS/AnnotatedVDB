@@ -24,6 +24,7 @@ from GenomicsDBData.Util.exceptions import print_exception
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
+from AnnotatedVDB.Util.variant_annotator import VariantAnnotator, VARIANT_COLUMNS
 from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
 
 import multiprocessing
@@ -211,17 +212,19 @@ def load_annotation(chromosome):
                         # for each allele
                         for alt in altAllele:
                             variantCount = variantCount + 1
-                            metaseqId = ':'.join((chrom, xstr(position), refAllele, alt))
-                            positionEnd = entry.infer_variant_end_location(alt)
-
-                            binIndex = indexer.find_bin_index(chrom, position, positionEnd)
+                            
+                            annotator = VariantAnnotator(refAllele, altAllele, chrom, position);
+                            normRef, normAlt = annotator.get_normalized_alleles()
+                            annotator.set_location_end(entry.infer_variant_end_location(alt, normRef));
+                            
+                            binIndex = indexer.find_bin_index(chrom, position, annotator.get_location_end())
 
                             # NOTE: VEP uses normalized alleles to indicate variant_allele
-                            nRef, nAlt = entry.normalize_alleles(refAllele, alt, snvDivMinus=True)
-                            alleleFreq = None if frequencies is None \
-                              else get_allele_frequencies(nAlt, frequencies)
 
-                            msConseq = get_most_severe_consequence(nAlt, vepParser)
+                            alleleFreq = None if frequencies is None \
+                              else get_allele_frequencies(normAlt, frequencies)
+
+                            msConseq = get_most_severe_consequence(normAlt, vepParser)
 
                             valueStr = '#'.join((
                                 'chr' + xstr(chrom),
@@ -229,10 +232,11 @@ def load_annotation(chromosome):
                                 xstr(vepParser.get('is_multi_allelic')),
                                 binIndex,
                                 refSnpId,
-                                metaseqId,
+                                annotator.get_metaseq_id(),
+                                json2str(annotator.get_display_attributes()),
                                 json2str(alleleFreq),
                                 json2str(msConseq),
-                                json2str(get_adsp_ranked_allele_consequences(nAlt, vepParser)),
+                                json2str(get_adsp_ranked_allele_consequences(normAlt, vepParser)),
                                 json.dumps(vepResult),
                                 algInvocId
                                 ))
@@ -383,8 +387,6 @@ if __name__ == "__main__":
 
     if not args.logAfter:
         args.logAfter = args.commitAfter
-
-    VARIANT_COLUMNS = qw('chromosome location is_multi_allelic bin_index ref_snp_id metaseq_id allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
     chrList = args.chr.split(',') if args.chr != 'all' \
       else [c.value for c in Human]
