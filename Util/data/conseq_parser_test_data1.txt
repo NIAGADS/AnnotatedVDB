@@ -1,0 +1,7 @@
+consequence
+3_prime_UTR_variant,stop_retained_variant,splice_region_variant
+splice_region_variant,missense_variant
+coding_sequence_variant,splice_donor_variant
+coding_sequence_variant,splice_donor_variant,5_prime_UTR_variant
+frameshift_variant,splice_acceptor_variant
+
