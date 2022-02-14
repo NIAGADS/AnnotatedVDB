@@ -1,11 +1,33 @@
-'''
-Enum for handling sets of VEP consequences &  facilitate ADSP consequence ranking
-'''
+"""! @brief ADSP Consequence Group Enum"""
+
+##
+# @file conseq_group_enum.py
+#
+# @brief  ADSP Consequence Group Enum
+# 
+# @section conseq_group_enum Description
+# Defines an Enum class to store & manipulate groups of consequence terms
+# to facilitate the ranking of VEP variants according to ADSP criteria
+#
+# @section todo_conseq_group_enum TODO
+#
+# @section libraries_conseq_group_enum Libraries/Modules
+# - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
+#   + provides variety of wrappers for set and list operations
+#
+# @section author_conseq_group_enum Author(s)
+# - Created by Emily Greenfest-Allen (fossilfriend) 2022
+
+
 # pylint: disable=line-too-long,invalid-name,no-self-use
 from enum import Enum
 import GenomicsDBData.Util.list_utils as lu
 
 class ConseqGroup(Enum):
+    """! Enum class to store & manipulate groups of consequence terms 
+    to facilitate the ranking of VEP variants according to ADSP criteria
+    """
+    
     __order__ = 'HIGH_IMPACT NMD NON_CODING_TRANSCRIPT LOW_IMPACT'
     HIGH_IMPACT = ['transcript_ablation', 'splice_acceptor_variant', 'splice_donor_variant',
                    'stop_gained', 'frameshift_variant', 'stop_lost', 'start_lost',
@@ -28,8 +50,14 @@ class ConseqGroup(Enum):
 
     @classmethod
     def get_all_terms(cls):
-        ''' return all terms
-        usage: ConseqGroups.get_all_terms '''
+        """! retrieve complete set of terms across all consequence groups
+
+        ~~~~~~~~~~~~~{.py}
+        ConseqGroups.get_all_terms() #usage
+        ~~~~~~~~~~~~~
+
+        @returns complete set of terms across all consequence groups
+        """
         terms = []
         for x in ConseqGroup:
             if x.name != 'NON_CODING_TRANSCRIPT': # subset of LOW_IMPACT & want to preserve order
@@ -40,24 +68,34 @@ class ConseqGroup(Enum):
 
     @classmethod
     def get_complete_indexed_dict(cls):
-        ''' returns indexed OrderedDict containing all ConseqGroup terms
-        usage: ConseqGroups.get_complete_indexed_dict()
-        '''
+        """! return indexed OrderedDict containing all ConseqGroup terms
+
+        ~~~~~~~~~~~~~{.py}
+        ConseqGroups.get_complete_indexed_dict() #usage
+        ~~~~~~~~~~~~~
+
+        @returns complete set of terms as ordered dict of key:value = term:index
+        """
         values = ConseqGroup.get_all_terms()
         return lu.list_to_indexed_dict(values)
 
 
     @classmethod
     def validate_terms(cls, conseqs):
-        ''' verify that all terms fall into a conseq group
+        """! verify that all terms fall into a conseq group
         raise error if novel term is found so that code can be updated to assign to a specific
         consequence group
 
-        see https://useast.ensembl.org/info/genome/variation/prediction/predicted_data.html
+        - see [Ensembl VEP Consequences](https://useast.ensembl.org/info/genome/variation/prediction/predicted_data.html)
         for possible updates
 
-        usage: ConseqGroup.validate_terms(conseqs)
-        '''
+        ~~~~~~~~~~~~~{.py}
+        ConseqGroup.validate_terms(conseqs) # usage
+        ~~~~~~~~~~~~~
+
+        @returns True if all terms are valid
+        """
+        
         validTerms = ConseqGroup.get_all_terms()
 
         for c in conseqs:
@@ -74,16 +112,31 @@ class ConseqGroup(Enum):
 
 
     def __str__(self):
-        ''' usage: str(ConseqGroup.HIGH_IMPACT) '''
+        """! convert enum value to comma separated string
+
+        ~~~~~~~~~~~~~{.py}
+        str(ConseqGroup.HIGH_IMPACT) # usage
+        ~~~~~~~~~~~~~
+
+        @returns comma separated string of enum values
+        """
         return ','.join(self.value)
 
 
     def get_group_members(self, conseqs, requireSubset=True):
-        ''' given a list of combinations, extracts those that
+        """! given a list of combinations, extracts those that
           include group members following ADSP Annotation rules
 
-         usage: ConseqGroup.LOW_IMPACT.get_members(conseqs)
-        '''
+          - LOW_IMPACT: conseqs are a subset of enum values
+          - NMD, NON_CODING_TRANSCRIPT: conseqs include enum values
+          - HIGH_IMPACT: conseqs include HIGH_IMPACT values, but not NMD or NON_CODING_TRANSCRIPT values
+
+        ~~~~~~~~~~~~~{.py}
+        ConseqGroup.LOW_IMPACT.get_members(conseqs) # usage
+        ~~~~~~~~~~~~~
+        
+        @returns list of conseqs that include terms belonging to the enum group
+        """
 
         ConseqGroup.validate_terms(conseqs)
 
@@ -100,7 +153,12 @@ class ConseqGroup(Enum):
 
 
     def toDict(self):
-        ''' returns indexed OrderedDict containing ConseqGroup terms
-        usage: ConseqGroups.LOW_IMPACT.toDict()
-        '''
+        """! transform enum values into indexed OrderedDict
+
+        ~~~~~~~~~~~~~{.py}
+        ConseqGroups.LOW_IMPACT.toDict() #usage
+        ~~~~~~~~~~~~~
+
+        @returns OrderedDict key:value = term:index
+        """
         return lu.list_to_indexed_dict(self.value)

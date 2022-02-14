@@ -1,48 +1,74 @@
-# TODO: save updated conseques
-# Check Alpha/numeric sort from Nick's code
+"""! @brief ADSP VEP Consequence Parser and Ranker"""
 
-'''
-Some python functions for ranking consequence combinations
-Edited for increased readability
-
-Modified from code by Nick Wheeler, Case Western (W. Bush Group)
-
-modifed by EGA/fossilfriend (2021-2022) as follows:
-  * wrap in class
-  * moved file/load parsing & consequence matching / fetching from vep_parser.py
-  * added save option
-  * removed unnecessary string parsing which accounts for by JSON & parsing UTF-8 encoding on file reads
-  * introduced readable variable names to follow conventions of GenomicsDB coding
-  * replace original code dependency on pandas w/set operations & OrderedDict
-
-NOTE:
-  `terms`: a single consequence combination of one or more terms; in list form
-  `conseq`: a single consequence combination, in comma separated string form
-  `conseqs`: a list of consequence combinations
-
-'''
+##
+# @file adsp_consequence_parser.py
+#
+# @brief  ADSP VEP Consequence Parser and Ranker
+# 
+# @section adsp_consequence_parser Description
+# Some python functions for ranking consequence combinations
+#
+# modifed by EGA/fossilfriend (2021-2022) as follows:
+#  - wrap in class
+#  - moved file/load parsing & consequence matching / fetching from vep_parser.py
+#  - added save option
+#  - removed unnecessary string parsing which accounts for by JSON & parsing UTF-8 encoding on file reads
+#  - replace original code dependency on pandas w/set operations & OrderedDict
+#  - introduced ConseqGroup enum to facilitate ranking
+#  - introduced readable variable names to follow conventions of GenomicsDB coding
+#  - NOTE: to improve readability adopted the following conventions
+#    + `terms`: a single consequence combination of one or more terms; in list format
+#    + `conseq`: a single consequence combination, in comma separated string form
+#    + `conseqs`: a list of consequence combinations
+#
+# @section todo_adsp_consequence_parser TODO
+#
+# - none
+#
+# @section libraries_adsp_consequence_parser Libraries/Modules
+# - csv: csv file reading and writing
+# - collections: container datatypes (e.g., OrderedDict)
+# - datetime: for putting timestamps on updates to consequence ranking file
+# - [GenomicsDBData.Util.utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/utils.py)
+#   + provides variety of wrappers for standard file, string, list, and logging operations
+# - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
+#   + provides variety of wrappers for set and list operations
+# - [AnnotatedVDB.Util.conseq_group_enum](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/conseq_group_enum.py)
+#   + enum listing groupings of consequence terms required to determine ADSP rankings
+#
+# @section author_adsp_consequence_parser Author(s)
+# - Created by Emily Greenfest-Allen (fossilfriend) 2021-2022
+# - Modified from code by Nick Wheeler, Case Western (W. Bush Group)
 
 # pylint: disable=line-too-long,invalid-name,no-self-use
 from __future__ import print_function
 
 import csv
-import json
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from datetime import date
 
-from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path
+from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, pretty_print_dict
 import GenomicsDBData.Util.list_utils as lu
 from AnnotatedVDB.Util.conseq_group_enum import ConseqGroup
 
-
 class ConsequenceParser(object):
-    ''' class to organize utils for parsing and re-ranking ADSP ranked consequences of VEP output '''
+    """! Parser for reading and re-ranking ADSP ranked consequences of VEP output """
 
     def __init__(self, rankingFileName, saveOnAddConseq=False, rankOnLoad=False, verbose=False, debug=False):
+        """! ConsequenceParser base class initializer
+
+        @param rankingFileName           file containing initial consequence ranks, or newline delim list of consequences
+        @param saveOnAddConseq           flag to save new version of the file after adding a new consequence
+        @param rankOnLoad                flag to re-rank consequences when loading file
+        @param verbose                   flag for verbose output
+        @param debug                     flag for debug output
+
+        @returns                         An instance of the ConsequenceParser class with loaded consequence rankings
+        """
         self._verbose = verbose
         self._debug = debug
         self._rankingFileName = rankingFileName
-        self._consequenceRankings = self._parse_ranking_file(rankingFileName)
+        self._consequenceRankings = self._parse_ranking_file()
         self._addedConsequences = []
         self._saveOnAddConsequence = saveOnAddConseq
         
@@ -55,9 +81,11 @@ class ConsequenceParser(object):
 
 
     def save_ranking_file(self, fileName=None):
-        ''' save ranking if file.  
-          if no file name is provided, will upate original file name with today's date
-          '''
+        """! save ranking if file
+          
+        @param fileName   output file name; if no file name is provided, will upate original file name with current date 
+        """
+      
         header = lu.qw('consequence rank')
         if fileName is None:
             fileName = self._rankingFileName.split('.')[0] + "_" \
@@ -72,14 +100,17 @@ class ConsequenceParser(object):
                 print(conseq, rank, sep='\t', file=ofh)
             
 
-    def _parse_ranking_file(self, fileName):
-        ''' parse ranking file and save as dictionary lookup '''
+    def _parse_ranking_file(self):
+        """! parse ranking file & save as dict 
+        @returns dictionary of conseqs:rank
+        """
+        
         if self._verbose:
-            warning("Parsing ranking file: ", fileName)
+            warning("Parsing ranking file: ", self._rankingFileName)
 
         result = OrderedDict()
         rank = 1
-        with open(fileName, 'r') as fh:
+        with open(self._rankingFileName, 'r') as fh:
             reader = csv.DictReader(fh, delimiter='\t')
             for row in reader:
                 conseq = lu.alphabetize_string_list(row['consequence']) # ensures unique keys
@@ -95,29 +126,36 @@ class ConsequenceParser(object):
 
     # =========== accessors ==================
 
-    def get_new_conseq_count(self):
-        '''return count of newly added consequences'''
+    def get_new_conseq_count(self):    
+        """! retrieve count of newly added consequences
+        @returns count of newly added consequences"""
         return len(self._addedConsequences)
     
 
     def new_consequences_added(self):
-        ''' flag = true if new consequences were added '''
+        """! check if new consequences were added
+        @returns True if new consequences were added"""
         return len(self._addedConsequences) > 0
 
     
     def get_added_consequences(self):
-        ''' return list of new consequences '''
+        """! retrieve list of newly added consequences
+        @return list of new consequences"""
         return self._addedConsequences
         
         
     def get_rankings(self):
-        ''' return consequence rankings '''
+        """! retrieve consequence rankings
+        @return OrderedDict of conseqs:rank """
         return self._consequenceRankings
 
 
     def get_consequence_rank(self, conseq, failOnError=False):
-        ''' return value from consequence rank map for the specified
-        consequence '''
+        """! retrieve value from consequence rank map for the specified consequence
+        @param conseq       the consequence combination to look up
+        @param failOnError  flag indicating whether to raise an error if consequence is not found
+        @return return value from consequence rank map for the specified or None if not found
+        """
         if conseq in self._consequenceRankings:
             return self._consequenceRankings[conseq]
         else:
@@ -260,8 +298,8 @@ class ConsequenceParser(object):
 
         completeRankingDict = ConseqGroup.get_complete_indexed_dict() # needed for non-exclusive grps
         if self._debug:
-            warning("GRP Dict:", json.dumps(grpRankingDict, indent=4))
-            warning("COMPLETE Dict:", json.dumps(completeRankingDict, indent=4))
+            warning("GRP Dict:", pretty_print_dict(grpRankingDict, indent=4))
+            warning("COMPLETE Dict:", pretty_print_dict(completeRankingDict, indent=4))
 
         indexedConseqs = []
         for c in conseqs:

@@ -1,57 +1,64 @@
-""" 
-generator for variant record primary key
+"""! @brief GenomicsDB Record Primary Key Generators"""
 
-rules:
+##
+# @file primary_key_generator.py
+#
+# @brief  GenomicsDB Record Primary Key Generators
+# 
+# @section primary_key_generator Description
+# Defines primary key generators for GenomicsDB records:
+## - VariantPKGenerator: generator for variants
+#
+# @section todo_primary_key_generator TODO
+# - evaluate VRS normalization
+# - handle EVA sub SNP ids (ss) ids?
+# - validate GenomeBuild?
+# - should chrM be 'M' or 'MT' to be mapped correctly?
+#
+# @section libraries_primary_key_generator Libraries/Modules
+# - [vrs-python](https://github.com/ga4gh/vrs-python)
+#   + provides Python language support for the GA4GH Variation Representation Specification (VRS)
+# - [GenomicsDBData.Util.utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/utils.py)
+#   + provides variety of wrappers for standard file, string, list, and logging operations
+#
+# @section author_primary_key_generator Author(s)
+# - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
-for SNV's and short INDELS (total length alleles <= 50)
-======================================================
-1. use the NCBI dbSNP SPDI - https://www.ncbi.nlm.nih.gov/variation/notation/
-or Sequence:Position:Deletion:Insertion 
- --> w/restriction that deletion/reference length should NOT be substituted for the deletion/reference sequence b/c we cannot guarantee that the deletion sequence comes from the reference genome
-
-2. if the variant can be associated with a NCBI refSNP, append the rsId,
-so that the full PK is:
-
-SPDI:refSnpId
-
-TODO: 3. if the variant can be associated with an EVA short snp identifier (and not a refSnpId), append the ssId, so that the full PK is:
-
-SPDI:ssId
-
-
-for large INDELS/SVS (total length alleles > 50)
-======================================================
-S:P:VRS Computed Identifier:externalID
-
-see: https://vrs.ga4gh.org/en/stable/impl-guide/computed_identifiers.html#computed-identifiers
-
-e.g. ga4gh:VA.EgHPXXhULTwoP4-ACfs-YCXaeUQJBjH_
-
-for this use case will strip the prefix code 'ga4gh:VA.' as it will be identical for each serialization & the . and : will interfer w/parsing / i.e. only retain the digest
-
-e.g., 
-1:110852777:CCTGCTCCTT:CACCCCCACAGCTGTTACCCAGCGCCACACACAGAGCAGACGCTGAATCACTGCTTATTGACTGAATCAGCAATGGGGTACCTGCTCCTG:rs71575164
--->
-
-e.g., 
-1:110241183:CCTTTCCCGCTTCTCTGTCCTGCAGCCAGCTGATCGTGGGACTTCACTCCAAAATTATGTGAGCCAGTTCCCACAAGAGATAC:CTTTCCTGCTTCTCTGTCCTGCAGCCAGCTGATTGTGGGACTTCACTCCAAAATTGTGTGAGCCAATTCCCATAAGAGATAA:rs386634503
--->
-
-
-
-"""
-import json # for debug
 from ga4gh.core import ga4gh_identify, ga4gh_serialize
 from ga4gh.vrs.extras.translator import Translator
 from ga4gh.vrs.dataproxy import create_dataproxy
-from GenomicsDBData.Util.utils import warning, die, xstr
-
+from GenomicsDBData.Util.utils import warning, die, xstr, pretty_print_dict
 
 class VariantPKGenerator(object):
-    ''' generator for variant record primary key '''
+    """! Generator for variant record primary key.
+    
+    Keys are generated using the following specifications:
+    - [NCBI dbSNP SPDI or Sequence:Position:Deletion:Insertion](https://www.ncbi.nlm.nih.gov/variation/notation/)
+    - [GA4GH VRS Computed Sequence Representations](https://vrs.ga4gh.org/en/stable/impl-guide/computed_identifiers.html#computed-identifiers)
+
+    According to the following rules:
+    - for SNV's and short INDEX (total length alleles <= maxSequenceLength):
+      + S:P:D:I, with restriction that deletion (reference) length should not substituted for the sequence
+    - for large INDELS/SVs (total length alleles > maxSequenceLength)
+      + S:P:VRS_CI
+    - if an external id is provided (e.g., refSNP or ss) it is provided at the end so that PKs are as follows:
+      + S:P:D:I:refSNP
+      + S:P:VRS_CI:refSNP
+   """
     
 
     def __init__(self, genomeBuild, seqrepoProxyPath, maxSequenceLength=50, normalize=False, verbose=True, debug=False):
+        """! VariantPKGenerator base class initializer
+        @param genomeBuild          Assembly name (e.g., GRCh38, GRCh37)
+        @param seqrepoProxyPath     full path to the file-based seqrepo data repository / required by GA4GH VRS
+        @param maxSequenceLength    max length for ref & alt alleles, above which sequence should be digested
+        @param normalize            apply GA4GH normalization
+        @param verbose              verbose output flag
+        @param debug                debug flag
+
+        @return                     An instance of the VariantPKGenerator class with initialized translator
+        """
+        
         self._verbose = verbose
         self._debug = debug
         self._genomeBuild = genomeBuild
@@ -62,7 +69,12 @@ class VariantPKGenerator(object):
 
 
     def _set_seqrepo_translator(self, proxyPath, normalize=False):
-        ''' set seqrepo translator '''
+        """! set the seqrepo translator
+
+        @param proxyPath         full path to the file-based seqrepo data repository
+        @param normalize         apply GA4GH normalization
+        """
+
         dataProxy = create_dataproxy("seqrepo+file://" + proxyPath)
         self._translator = Translator(data_proxy=dataProxy)
         self._translator.normalize = normalize
@@ -70,22 +82,32 @@ class VariantPKGenerator(object):
 
 
     def translate_vrs(self, vrsDict, formatSpec="spdi"):
-        ''' translate vrsDict to human readable format '''
+        """! translate VRS allele dict back to HGVS or SPDI format / for validation purposes
+        @param vrsDict           the VRS Allele Dict object
+        @param formatSpec        target format: hgvs or spdi
+        @returns                 translation of the VRS Allele Dict
+        """
+        
         if formatSpec not in ['hgvs', 'spdi']:
-            raise IndexError("invalid format spec: spd, hgvs")
+            raise IndexError("invalid format spec: specify 'spdi' or 'hgvs'")
 
         return self._translator.translate_to(vrsDict, formatSpec)
 
         
     def generate_primary_key(self, metaseqId, externalId=None):
-        ''' generate the primary key from the metaseqId & externalId'''
+        """! generate and returns the primary key 
+        @param metaseqId         metaseq or SPDI formatted (with deletion sequence) variant representation
+        @param externalId        refSnp or subSnp ID
+        @returns                 generated primary key
+        """
+
         chrm, position, ref, alt = metaseqId.split(':')
 
         pk = [chrm, position]
         if len(ref) + len(alt) <= self._maxSequenceLength:
             pk.extend([ref,alt])
         else:
-            pk.append(self.get_vrs_identifier(metaseqId))
+            pk.append(self.compute_vrs_identifier(metaseqId))
 
         if externalId is not None:
           pk.append(externalId)
@@ -93,8 +115,16 @@ class VariantPKGenerator(object):
         return ':'.join(pk)
         
 
-    def _get_ga4gh_vr_sequence_id(self, chrm):
-        ''' fetch ga4gh-vr sequence id for the chromosome '''
+    def get_ga4gh_vr_sequence_id(self, chrm):
+        """! get the GA4GH VR Sequence ID for a chromosome specified as GenomeBuild:ChrNum
+        e.g., 'GRCh38:10'
+
+        @param chrm              chromosome number (1..22, X, Y, M (MT?))
+        @returns                 ga4gh digested sequence id
+
+        updates an internal mapping to reduce computational overhead in case of bulk lookups
+        """
+
         if chrm not in self._ga4gh_sequence_map:
             gvrId = translate_sequence_identifier(self._genomeBuild + ":" + xstr(chrm), "ga4gh")
             self._ga4gh_sequence_map[chrm] = gvrId[0]
@@ -104,24 +134,32 @@ class VariantPKGenerator(object):
 
 
     def get_vrs_allele_dict(self, metaseqId, serialize=False, toJson=False):
-        ''' get a ga4gh VRS allele dict for the specified variant '''
-        # transform in to gnomad id (replace ':' with '-')
+        """! get the GA4GH VRS Allele dict, given a variant
+        @param metaseqId          metaseq or SPDI formatted (with deletion sequence) variant representation
+        @param serialize          serialize to binary object
+        @param toJson             return as JSON object
+
+        @returns                  VRS Allele dict in format specified by flags
+        """
+        
+        # transform metaseq id to gnomad id (replace ':' with '-')
+        # using gnomad b/c it accepts chrNum instead of refseq accession (required by SPDI)
         gnomadExpr = metaseqId.replace(':', '-')
         alleleDict = self._translator._from_gnomad(gnomadExpr, self._genomeBuild)
-
-        
+      
         if serialize:
             return ga4gh_serialize(alleleDict)
         if toJson:
-            return alleleDict.for_json() # json.loads(alleleDict.decode("utf-8"))
+            return alleleDict.for_json() 
 
         return alleleDict
         
         
-
-    def get_vrs_identifier(self, metaseqId):
-        ''' return computed ga4gh identifier for the allelic sequence '''
-
+    def compute_vrs_identifier(self, metaseqId):
+        """! return computed GA4GH identifier for the variant
+        @param metaseqId          metaseq or SPDI formatted (with deletion sequence) variant representation
+        @returns                  VRS Computed Identifier
+        """
         alleleDict = self.get_vrs_allele_dict(metaseqId)
         
         if self._debug:
@@ -129,11 +167,10 @@ class VariantPKGenerator(object):
                 "Input Variant":  metaseqId,
                 "VRS Representation" : alleleDict.for_json(),
                 }
-            warning(json.dumps(debugOutput, indent=4, sort_keys=True))
+            warning(pretty_print_dict(debugOutput))
 
         vrsComputedId = ga4gh_identify(alleleDict)
-        
-      
+            
         return vrsComputedId
 
 
