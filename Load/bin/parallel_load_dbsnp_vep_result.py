@@ -2,8 +2,10 @@
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
 Loads AnnotatedVDB from JSON output from running VEP on dbSNP
-USE ONLY IF CERTAIN OF NO UNKNOWN CONSEQUENCES
+Loads each chromosome in parallel
 """
+
+
 from __future__ import print_function
 
 import argparse
@@ -13,19 +15,21 @@ import json
 import sys
 import io
 import copy
+import csv
 from datetime import datetime
 
 from os import path
 
-from GenomicsDBData.Util.utils import xstr, die, qw, execute_cmd, xstrN, warning
+from GenomicsDBData.Util.utils import xstr, die, execute_cmd, xstrN, warning
 from GenomicsDBData.Util.postgres_dbi import Database
 from GenomicsDBData.Util.exceptions import print_exception
 
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
-from AnnotatedVDB.Util.variant_annotator import VariantAnnotator, VARIANT_COLUMNS
+from AnnotatedVDB.Util.variant_annotator import VariantAnnotator, BASE_LOAD_FIELDS as VARIANT_COLUMNS
 from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
+from AnnotatedVDB.Util.primary_key_generator import VariantPKGenerator
 
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
@@ -33,8 +37,25 @@ from concurrent.futures import ProcessPoolExecutor
 from AnnotatedVDB.Util.chromosomes import Human
 
 
+def parse_chromosome_map():
+    """! parse chromosome map & return dict if present """
+    if args.chromosomeMap is None:
+        return None
+
+    chrmMap = {}
+    with open(args.chromosomeMap, 'r') as fh:
+        reader = csv.DictReader(fh, delimiter='\t')
+        for row in reader:
+            # source_id	chromosome	chromosome_order_num	length
+            key = row['source_id']
+            value = row['chromosome'].replace('chr', '')
+            chrmMap[key] = value
+
+    return chrmMap
+
+
 def evaluate_minor_allele(vepParser, lfh):
-    ''' some dbSNP variants are reported in VCF w/single mutations
+    '''! some dbSNP variants are reported in VCF w/single mutations
     but are actually multiallelic (have additional minor allele)
     and reported as such on the dbSNP website.  To catch these we
     need to evaluate the 1000Genomes minor allele frequency '''
@@ -109,7 +130,7 @@ def evaluate_minor_allele(vepParser, lfh):
 
 
 def get_frequencies(vepParser, lfh):
-    ''' extract frequencies'''
+    '''! extract frequencies'''
 
     frequencies = evaluate_minor_allele(vepParser, lfh)
     if frequencies is None:
@@ -118,7 +139,7 @@ def get_frequencies(vepParser, lfh):
 
 
 def json2str(value):
-    ''' convert JSON to str; accounting for None values '''
+    '''! convert JSON to str; accounting for None values '''
     if value is None:
         return 'NULL'
     else:
@@ -126,10 +147,11 @@ def json2str(value):
 
 
 def load_annotation(chromosome):
-    ''' parse over a JSON file, extract position, frequencies,
+    '''! parse over a JSON file, extract position, frequencies,
     ids, and ADSP-ranked most severe consequence; bulk load using COPY '''
 
-    lfn = xstr(chromosome) + '.log';
+    lfn = "annotatedvdb_dbsnp_chr_" + xstr(chromosome) + '.log';
+    warning("Logging to", lfn)
     lfh = open(lfn, 'w')
 
     algInvocation = AlgorithmInvocation('parallel_load_dbsnp_vep_result.py', json.dumps({'chromosome': chromosome}), args.commit)
@@ -137,13 +159,14 @@ def load_annotation(chromosome):
     algInvocation.close()
     warning("Algorithm Invocation ID", algInvocId, file=lfh, flush=True)
 
-    vepParser = VepJsonParser(args.rankingFile, verbose=True)
+    pkGenerator = VariantPKGenerator(args.genomeBuild, args.seqrepoProxyPath)
+    vepParser = VepJsonParser(args.rankingFile, rankConsequencesOnLoad=True, verbose=True)
     indexer = BinIndex(args.gusConfigFile, verbose=False)
 
     database = Database(args.gusConfigFile)
     database.connect()
 
-    fname = 'chr' + xstr(chromosome) + '.json.gz'
+    fname = 'chr' + xstr(chromosome) + "." + args.extension
     fname = path.join(args.dir, fname)
     lineCount = 0
     variantCount = 0
@@ -193,9 +216,12 @@ def load_annotation(chromosome):
                     refAllele = entry.get('ref')
                     altAllele = entry.get('alt').split(',')
 
-                    chrom = xstr(entry.get('chrom'))
+                    chrom = xstr(entry.get('chrom')) 
+                    if chrmMap is not None:
+                        chrom = chrmMap[chrom]                      
                     if chrom == 'MT':
                         chrom = 'M'
+                        
                     position = int(entry.get('pos'))
 
                     isMultiAllelic = len(altAllele) > 1
@@ -213,21 +239,23 @@ def load_annotation(chromosome):
                         for alt in altAllele:
                             variantCount = variantCount + 1
                             
-                            annotator = VariantAnnotator(refAllele, altAllele, chrom, position);
+                            annotator = VariantAnnotator(refAllele, alt, chrom, position);
                             normRef, normAlt = annotator.get_normalized_alleles()
-                            annotator.set_location_end(entry.infer_variant_end_location(alt, normRef));
-                            
-                            binIndex = indexer.find_bin_index(chrom, position, annotator.get_location_end())
+                            binIndex = indexer.find_bin_index(chrom, position, entry.infer_variant_end_location(alt, normRef))
 
-                            # NOTE: VEP uses normalized alleles to indicate variant_allele
-
+                            # NOTE: VEP uses left normalized alleles to indicate variant_allele,
+                            # so need to use normalized alleles to match allele frequences
+                            # to the correct allele
                             alleleFreq = None if frequencies is None \
                               else get_allele_frequencies(normAlt, frequencies)
 
                             msConseq = get_most_severe_consequence(normAlt, vepParser)
+                            recordPK = pkGenerator.generate_primary_key(annotator.get_metaseq_id(), refSnpId)
 
+                            # fields: ('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id')
                             valueStr = '#'.join((
                                 'chr' + xstr(chrom),
+                                recordPk,
                                 xstr(position),
                                 xstr(vepParser.get('is_multi_allelic')),
                                 binIndex,
@@ -366,6 +394,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='load AnnotatedDB from  JSON output of VEP against dbSNP')
     parser.add_argument('-d', '--dir',
                         help="directory containing VEP results", required=True)
+    parser.add_argument('-e', '--extension', required=True,
+                        help="file extension (e.g., json.gz)")
+    parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
+    parser.add_argument('-s', '--seqrepoProxyPath', required=True,
+                        help="full path to local SeqRepo file repository")
+    parser.add_argument('-m', '--chromosomeMap', required=False,
+                        help="chromosome map")
     parser.add_argument('-r', '--rankingFile', required=True,
                         help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
@@ -376,7 +411,7 @@ if __name__ == "__main__":
     parser.add_argument('--resumeAfter',
                         help="refSnpId after which to resume load (log lists lasts committed refSNP)")
     parser.add_argument('-c', '--chr', required=True,
-                        help="chromosome to load, e.g., 1, 2, M, X")
+                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X or `all`")
     parser.add_argument('--commitAfter', type=int, default=500,
                         help="commit after specified inserts")
     parser.add_argument('--maxWorkers', default=10, type=int)
@@ -388,10 +423,16 @@ if __name__ == "__main__":
     if not args.logAfter:
         args.logAfter = args.commitAfter
 
+    chrmMap = parse_chromosome_map()
+        
     chrList = args.chr.split(',') if args.chr != 'all' \
       else [c.value for c in Human]
- 
+
+    numChrs = len(chrList)
     with ProcessPoolExecutor(args.maxWorkers) as executor:
-        for c in chrList:
-            warning("Create and start thread for chromosome:", xstr(c))
-            executor.submit(load_annotation, c)
+        if numChrs > 1:
+            for c in chrList:
+                warning("Create and start thread for chromosome:", xstr(c))
+                executor.submit(load_annotation, c)
+        else: # for debugging
+            load_annotation(chrList[0])
