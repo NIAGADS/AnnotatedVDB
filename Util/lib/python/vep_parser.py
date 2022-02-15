@@ -15,10 +15,12 @@ CONSEQUENCE_TYPES = qw('transcript regulatory_feature motif_feature intergenic')
 
 CODING_CONSEQUENCES= qw('synonymous_variant missense_variant inframe_insertion inframe_deletion stop_gained stop_lost stop_retained_variant start_lost frameshift_variant coding_sequence_variant')
 
-def is_coding_consequence(conseqStr):
+def is_coding_consequence(conseqs):
     ''' check term against list of coding consequences and return 
     True if found '''
-    matches = [value for value in conseqStr.split(',') 
+    terms = conseqs.split(',') if isinstance(conseqs, str) else conseqs
+
+    matches = [value for value in terms
                    if value in CODING_CONSEQUENCES]
 
     return len(matches) > 0
@@ -27,10 +29,9 @@ def is_coding_consequence(conseqStr):
 class VepJsonParser(object):
     ''' class to organize utils for parsing VEP JSON output '''
 
-    def __init__(self, rankingFileName, verbose=True):
+    def __init__(self, rankingFileName, rankConsequencesOnLoad=False, verbose=True):
         self._verbose = verbose
-        self._consequenceParser = ConsequenceParser(rankingFileName)
-        # self._consequenceRankings = self.parse_ranking_file(rankingFileName)
+        self._consequenceParser = ConsequenceParser(rankingFileName, rankOnLoad=rankConsequencesOnLoad)
         self._annotation = None
 
 
@@ -41,14 +42,11 @@ class VepJsonParser(object):
         '''
 
         terms = conseq['consequence_terms']
-        matchingConseq = self.find_matching_consequence(terms) 
-
-        conseq['vep_impact'] =  conseq['impact']
-        conseq['impact'] = matchingConseq['impact']
-        conseq['rank'] = matchingConseq['rank']
-        conseq['consequence_is_coding'] = matchingConseq['coding']
+        conseq['rank'] = self._consequenceParser.find_matching_consequence(terms) 
+        conseq['consequence_is_coding'] = is_coding_consequence(terms)
 
         return conseq
+    
         
 
     def __verify_annotation(self):
@@ -63,7 +61,7 @@ class VepJsonParser(object):
         and saves newly ordered list
         '''
         for ctype in CONSEQUENCE_TYPES:
-            rankedConseqs = self.__adsp_rank_consequences(ctype)
+            rankedConseqs = self._adsp_rank_consequences(ctype)
             if rankedConseqs is not None:
                 self.set(ctype + '_consequences', rankedConseqs)
 
@@ -85,10 +83,7 @@ class VepJsonParser(object):
     def get_conseq_rank(self, conseq):
         ''' return value from consequence rank map for the specified
         consequence '''
-        if conseq in self._consequenceRankings:
-            return self._consequenceRankings[conseq]
-        else:
-            raise IndexError('Consequence ' + conseq + ' not found in ranking file.')
+        return self._consequenceParser.get_consequence_rank(conseq)
 
 
     def _adsp_rank_consequences(self, conseqType):
@@ -97,7 +92,6 @@ class VepJsonParser(object):
         to ensure consequences are sorted per allele'''
 
         result = None
-        localConseqMap = {} # so that we don't have to look up repeated consequences
         consequences = self.get(conseqType + '_consequences')
         if consequences is None:
             return None

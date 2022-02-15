@@ -26,9 +26,15 @@ import GenomicsDBData.Util.list_utils as lu
 class ConseqGroup(Enum):
     """! Enum class to store & manipulate groups of consequence terms 
     to facilitate the ranking of VEP variants according to ADSP criteria
+
+    > NOTE: 'HIGH' IMPACT group also includes consequences classified by VEP as 'MODERATE' or 'LOW'
+
+    - terms added by EGA:
+      + regulatory_region_ablation 02/14/2022
+
     """
     
-    __order__ = 'HIGH_IMPACT NMD NON_CODING_TRANSCRIPT LOW_IMPACT'
+    __order__ = 'HIGH_IMPACT NMD NON_CODING_TRANSCRIPT MODIFIER'
     HIGH_IMPACT = ['transcript_ablation', 'splice_acceptor_variant', 'splice_donor_variant',
                    'stop_gained', 'frameshift_variant', 'stop_lost', 'start_lost',
                    'inframe_insertion', 'inframe_deletion', 'missense_variant',
@@ -36,16 +42,17 @@ class ConseqGroup(Enum):
                    'incomplete_terminal_codon_variant', 'stop_retained_variant',
                    'start_retained_variant', 'synonymous_variant',
                    'coding_sequence_variant', '5_prime_UTR_variant', '3_prime_UTR_variant',
-                   'intron_variant'] # GRP 4
+                   'regulatory_region_ablation'
+                   ] # GRP 4
 
     NMD = ['NMD_transcript_variant'] # GRP 1
 
     NON_CODING_TRANSCRIPT = ['non_coding_transcript_exon_variant', 'non_coding_transcript_variant'] # GRP 2
 
-    LOW_IMPACT = ['mature_miRNA_variant', 'non_coding_transcript_variant',
-                  'non_coding_transcript_exon_variant', 'upstream_gene_variant',
-                  'downstream_gene_variant', 'TF_binding_site_variant', 'TFBS_ablation',
-                  'TF_binding_site_variant', 'regulatory_region_variant', 'intergenic_variant'] # GRP 3
+    MODIFIER = ['intron_variant', 'mature_miRNA_variant', 'non_coding_transcript_variant',
+                'non_coding_transcript_exon_variant', 'upstream_gene_variant',
+                'downstream_gene_variant', 'TF_binding_site_variant', 'TFBS_ablation',
+                'TF_binding_site_variant', 'regulatory_region_variant', 'intergenic_variant'] # GRP 3
 
 
     @classmethod
@@ -60,7 +67,7 @@ class ConseqGroup(Enum):
         """
         terms = []
         for x in ConseqGroup:
-            if x.name != 'NON_CODING_TRANSCRIPT': # subset of LOW_IMPACT & want to preserve order
+            if x.name != 'NON_CODING_TRANSCRIPT': # subset of MODIFIER & want to preserve order
                 terms += x.value
 
         return terms
@@ -127,12 +134,12 @@ class ConseqGroup(Enum):
         """! given a list of combinations, extracts those that
           include group members following ADSP Annotation rules
 
-          - LOW_IMPACT: conseqs are a subset of enum values
+          - MODIFIER: conseqs are a subset of enum values
           - NMD, NON_CODING_TRANSCRIPT: conseqs include enum values
           - HIGH_IMPACT: conseqs include HIGH_IMPACT values, but not NMD or NON_CODING_TRANSCRIPT values
 
         ~~~~~~~~~~~~~{.py}
-        ConseqGroup.LOW_IMPACT.get_members(conseqs) # usage
+        ConseqGroup.MODIFIER.get_members(conseqs) # usage
         ~~~~~~~~~~~~~
         
         @returns list of conseqs that include terms belonging to the enum group
@@ -156,7 +163,7 @@ class ConseqGroup(Enum):
         """! transform enum values into indexed OrderedDict
 
         ~~~~~~~~~~~~~{.py}
-        ConseqGroups.LOW_IMPACT.toDict() #usage
+        ConseqGroups.MODIFIER.toDict() #usage
         ~~~~~~~~~~~~~
 
         @returns OrderedDict key:value = term:index

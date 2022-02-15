@@ -3,16 +3,17 @@ utils for parsing VCF files
 '''
 #pylint: disable=line-too-long,invalid-name
 
-from GenomicsDBData.Util.utils import qw, die, warning
+from GenomicsDBData.Util.utils import die, warning, pretty_print_dict
+from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
     ''' utils for parse a single line of a vcf file '''
 
     def __init__(self, entry):
-        self._entry = None if entry is None else self._parse_entry(entry)
+        self._entry = None if entry is None else self.__parse_entry(entry)
         
 
-    def _parse_entry(self, inputStr):
+    def __parse_entry(self, inputStr):
         ''' processes the VCF input string and return map
         # VCF
         # CHROM POS     ID        REF ALT    QUAL FILTER INFO
@@ -22,6 +23,7 @@ class VcfEntryParser(object):
         fields = qw('chrom pos id ref alt qual filter info')
         values = inputStr.split('\t')
         result = convert_str2numeric_values(dict(zip(fields, values)))
+        die(pretty_print_dict(result))
 
         # now unpack the info field and save as its own
         info = dict(item.split('=') if '=' in item else [item, True] for item in result['info'].split(';'))

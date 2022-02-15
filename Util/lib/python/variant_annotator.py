@@ -1,9 +1,11 @@
 """ variant annotator functions """
 #!pylint: disable=invalid-name
 
-from GenomicsDBData.Util.utils import xstr, truncate, reverse, qw
+from GenomicsDBData.Util.utils import xstr, truncate, reverse, warning
+from GenomicsDBData.Util.list_utils import qw
 
-VARIANT_COLUMNS = qw('chromosome location is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
+
+BASE_LOAD_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
 def truncate_allele(value):
     ''' wrapper for trunctate to 5 chars '''
@@ -18,17 +20,16 @@ class VariantAnnotator(object):
         self._alt = altAllele
         self._chrom = chrom
         self._position = position
-        self._locationStart = position
-        self._locationEnd = position # default assume SNV
-        self._metaseqId = self._set_metaseq_id()
+        self._metaseqId = None
+        self.__set_metaseq_id()
         
 
     def get_normalized_alleles(self, snvDivMinus=False):
         ''' public return normalized alleles '''
-        return self._normalize_alleles(snvDivMinus)
+        return self.__normalize_alleles(snvDivMinus)
     
 
-    def _normalize_alleles(self, snvDivMinus=False):
+    def __normalize_alleles(self, snvDivMinus=False):
         ''' remove leftmost alleles that are equivalent between
         the ref & alt alleles; e.g. CAGT/CG <-> AGT/G
         
@@ -72,8 +73,9 @@ class VariantAnnotator(object):
         return self._ref, self._alt # not sure under what conditions this would occur, but covering bases
             
         
-    def _set_metaseq_id(self):
+    def __set_metaseq_id(self):
         ''' generate metaseq id '''
+        warning(self._chrom, self._position, self._ref, self._alt)
         self._metaseqId = ':'.join((self._chrom, xstr(self._position), self._ref, self._alt))
 
         
@@ -81,16 +83,6 @@ class VariantAnnotator(object):
         ''' return metaseq id '''
         return self._metaseqId
 
-
-    def set_location_end(self, locEnd):
-        ''' set location end '''
-        self._locationEnd = locEnd
-
-        
-    def get_location_end(self):
-        ''' get location end'''
-        return self._locationEnd
-    
 
     def get_display_attributes(self, rsPosition = None):
         ''' 
@@ -101,17 +93,17 @@ class VariantAnnotator(object):
         if rsPosition is None:
             rsPosition = self._position
 
-        normRef, normAlt = self._normalize_alleles() # accurate length version
+        normRef, normAlt = self.__normalize_alleles() # accurate length version
         nRefLength = len(normRef)
         nAltLength = len(normAlt)
-        normRef, normAlt = self._normalize_alleles(True) # display version (- for empty string)
+        normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
 
         refLength = len(self._ref);
         altLength = len(self._alt)
         
         attributes = {
-            'location_start': self._locationStart,
-            'location_end': self._locationEnd
+            'location_start': self._posiion,
+            'location_end': self._position
         }
             
         if (refLength == 1 and altLength == 1): # SNV

@@ -47,7 +47,7 @@ import csv
 from collections import OrderedDict
 from datetime import date
 
-from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, pretty_print_dict
+from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, pretty_print_dict, xstr
 import GenomicsDBData.Util.list_utils as lu
 from AnnotatedVDB.Util.conseq_group_enum import ConseqGroup
 
@@ -68,14 +68,14 @@ class ConsequenceParser(object):
         self._verbose = verbose
         self._debug = debug
         self._rankingFileName = rankingFileName
-        self._consequenceRankings = self._parse_ranking_file()
+        self._consequenceRankings = self.__parse_ranking_file()
         self._addedConsequences = []
         self._saveOnAddConsequence = saveOnAddConseq
         
         if rankOnLoad: # re-rank file on load (e.g., first time using a ranking file)
             if self._verbose:
                 warning("INFO:", "rankOnLoad = True")
-            self._update_rankings()
+            self.__update_rankings()
             
         self._matchedConseqTerms = {} # for already matched/to speed up lookups
 
@@ -87,12 +87,13 @@ class ConsequenceParser(object):
         """
       
         header = lu.qw('consequence rank')
+        version = "_v" + xstr(self.get_new_conseq_count())
         if fileName is None:
             fileName = self._rankingFileName.split('.')[0] + "_" \
               + date.today().strftime("%m-%d-%Y") + ".txt"
               
         if verify_path(fileName): # file already exists / add versioning for each newly added conseq
-            fileName = self._rankingFileName.split('.')[0] + "_v" + self.get_new_conseq_count() + ".txt"
+            fileName = fileName.split('.')[0] + version  + ".txt"
 
         with open(fileName, 'w') as ofh:
             print('\t'.join(header), file=ofh)
@@ -100,7 +101,7 @@ class ConsequenceParser(object):
                 print(conseq, rank, sep='\t', file=ofh)
             
 
-    def _parse_ranking_file(self):
+    def __parse_ranking_file(self):
         """! parse ranking file & save as dict 
         @returns dictionary of conseqs:rank
         """
@@ -211,7 +212,7 @@ class ConsequenceParser(object):
         return list(self._consequenceRankings.keys()) # convert from odict_keys object
 
 
-    def _add_consequence(self, terms):
+    def __add_consequence(self, terms):
         ''' add new consequence (combination) to the list of known consequences '''
 
         # extract list of known consequences & add the new one
@@ -228,7 +229,7 @@ class ConsequenceParser(object):
         return referenceConseqs
 
         
-    def _update_rankings(self, terms=None):
+    def __update_rankings(self, terms=None):
         '''' update rankings, adding in new term combination if specified,
         where terms is a list of one or more consequences
         
@@ -237,7 +238,7 @@ class ConsequenceParser(object):
         1. Split all consequence combos into 4 groups:
            - GRP1 - nmd: contains `NMD_transcript_variant` - ConseqGroup.NMD
            - GRP2 - nct: contains `non_coding_transcript_variant` - ConseqGroup.NON_CODING_TRANSCRIPT
-           - GRP3 - low: contains ONLY consequences in ConseqGroup.LOW_IMPACT
+           - GRP3 - low: contains ONLY consequences in ConseqGroup.MODIFIER
            - GRP4 - high: includes at least one ConseqGroup.HIGH_IMPACT / should not overlap with groups 1&2
 
         2. Process GRPS in descending order
@@ -251,18 +252,18 @@ class ConsequenceParser(object):
         if self._verbose:
             warning("Updating consequence rankings")
             
-        conseqs = self._add_consequence(terms) if terms is not None else self.get_known_consequences()
+        conseqs = self.__add_consequence(terms) if terms is not None else self.get_known_consequences()
 
         sortedConseqs = []
         for grp in ConseqGroup:
             if self._verbose:
                 warning("Ranking", grp.name, "consequences.")
-            requireSubset = True if grp.name == 'LOW_IMPACT' else False
+            requireSubset = True if grp.name == 'MODIFIER' else False
             members = grp.get_group_members(conseqs, requireSubset) # extract conseqs belonging to current group
             if self._verbose:
                 warning("Found " + str(len(members)) + ":", members)
             if len(members) > 0:
-                sortedConseqs += self._sort_consequences(members, grp)
+                sortedConseqs += self.__sort_consequences(members, grp)
                 
         # convert to dict & update
         if self._debug:
@@ -276,7 +277,7 @@ class ConsequenceParser(object):
             self.save_ranking_file()
 
             
-    def _sort_consequences(self, conseqs, conseqGrp):
+    def __sort_consequences(self, conseqs, conseqGrp):
         ''' 
         sort an input list of consequence terms (a consequence combination) according 
         to a numerially indexed dictionary of their rankings
@@ -288,22 +289,22 @@ class ConsequenceParser(object):
         
         '''
 
-        # if LOW_IMPACT (GRP 3) use LOW_IMPACT,
+        # if MODIFIER (GRP 3) use MODIFIER,
         # else use HIGH_IMPACT
         # ranking dicts are retrieved here so that the calculation
         
         grpRankingDict = ConseqGroup.HIGH_IMPACT.toDict() \
-          if conseqGrp.name != 'LOW_IMPACT' \
+          if conseqGrp.name != 'MODIFIER' \
           else conseqGrp.toDict()
 
         completeRankingDict = ConseqGroup.get_complete_indexed_dict() # needed for non-exclusive grps
         if self._debug:
-            warning("GRP Dict:", pretty_print_dict(grpRankingDict, indent=4))
-            warning("COMPLETE Dict:", pretty_print_dict(completeRankingDict, indent=4))
+            warning("GRP Dict:", pretty_print_dict(grpRankingDict))
+            warning("COMPLETE Dict:", pretty_print_dict(completeRankingDict))
 
         indexedConseqs = []
         for c in conseqs:
-            indexedConseqs.append(self._calculate_ranking_indexes(c, grpRankingDict, completeRankingDict))
+            indexedConseqs.append(self.__calculate_ranking_indexes(c, grpRankingDict, completeRankingDict))
 
         if self._debug:
             warning("Indexed", conseqGrp.name, "consequences:", indexedConseqs)
@@ -319,7 +320,7 @@ class ConsequenceParser(object):
         return [','.join(sc[1]) for sc in sortedConseqs] # (alpha index, term) tuples; return term as str
 
 
-    def _calculate_ranking_indexes(self, conseq, grpDict, refDict):
+    def __calculate_ranking_indexes(self, conseq, grpDict, refDict):
         '''  return tuple of
              (alphabetic representation, internally sorted consequence combo as a list)
 
@@ -346,9 +347,9 @@ class ConsequenceParser(object):
             warning("member terms:", memberTerms)
             warning("nonmember terms:", nonMemberTerms)
             
-        indexes = self._get_consequence_ranks(memberTerms, grpDict)
+        indexes = self.__get_consequence_rank_list(memberTerms, grpDict)
         if len(nonMemberTerms) > 0:
-            indexes += self._get_consequence_ranks(nonMemberTerms, refDict)
+            indexes += self.__get_consequence_rank_list(nonMemberTerms, refDict)
 
         if self._debug:
             warning("indexes:", indexes)
@@ -361,14 +362,14 @@ class ConsequenceParser(object):
 
         # sort consequences in the combination by their ranking indexes
     
-        indexedConseq = self._internal_consequence_sort(memberTerms + nonMemberTerms, indexes, returnStr=False)
+        indexedConseq = self.__internal_consequence_sort(memberTerms + nonMemberTerms, indexes, returnStr=False)
         if self._debug:
             warning("indexed", indexedConseq)
             
         return (''.join(alphaIndexes), indexedConseq)
 
 
-    def _internal_consequence_sort(self, terms, rankings, returnStr = False):
+    def __internal_consequence_sort(self, terms, rankings, returnStr = False):
         ''' sort a consequence list by a list of rankings
         rankings are based on ConseqGroup indexes / hence 'internal'
         if returnStr = true, return comma separated string, else return sorted list
@@ -381,7 +382,7 @@ class ConsequenceParser(object):
             return list(sortedDict.keys())
     
 
-    def _get_consequence_ranks(self, terms, rankingDict):
+    def __get_consequence_rank_list(self, terms, rankingDict):
         '''
         retrieve a list of consequence rankings for each term in 
         the consequence combination according to a numerially indexed 
