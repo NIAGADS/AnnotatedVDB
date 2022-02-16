@@ -11,7 +11,12 @@ def truncate_allele(value):
     """ wrapper for trunctate to 5 chars """
     return truncate(value, 8)
 
-
+def reverse_complement(seq):
+    """! @returns reverse complement of the specified sequence (seq)
+    """
+    mapping = str.maketrans("ACGTacgt", "TGCAtgca")
+    return seq.translate(mapping)[::-1]
+    
 class VariantAnnotator(object):
     """ functions used in different loading scripts / consolidated """
 
