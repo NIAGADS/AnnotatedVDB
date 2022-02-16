@@ -47,7 +47,7 @@ import csv
 from collections import OrderedDict
 from datetime import date
 
-from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, pretty_print_dict, xstr
+from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, print_dict, xstr
 import GenomicsDBData.Util.list_utils as lu
 from AnnotatedVDB.Util.conseq_group_enum import ConseqGroup
 
@@ -191,7 +191,7 @@ class ConsequenceParser(object):
                 else: # add term & make recursive cal
                     if self._verbose:
                         warning('Consequence combination ' + ','.join(terms) + ' not found in ADSP rankings.')
-                    self._update_rankings(terms)
+                    self.__update_rankings(terms)
                     return self.find_matching_consequence(terms)
                 
             self._matchedConseqTerms[conseqKey] = match
@@ -256,11 +256,11 @@ class ConsequenceParser(object):
 
         sortedConseqs = []
         for grp in ConseqGroup:
-            if self._verbose:
+            if self._debug:
                 warning("Ranking", grp.name, "consequences.")
             requireSubset = True if grp.name == 'MODIFIER' else False
             members = grp.get_group_members(conseqs, requireSubset) # extract conseqs belonging to current group
-            if self._verbose:
+            if self._debug:
                 warning("Found " + str(len(members)) + ":", members)
             if len(members) > 0:
                 sortedConseqs += self.__sort_consequences(members, grp)
@@ -299,8 +299,7 @@ class ConsequenceParser(object):
 
         completeRankingDict = ConseqGroup.get_complete_indexed_dict() # needed for non-exclusive grps
         if self._debug:
-            warning("GRP Dict:", pretty_print_dict(grpRankingDict))
-            warning("COMPLETE Dict:", pretty_print_dict(completeRankingDict))
+            warning("GRP Dict:", print_dict(grpRankingDict, pretty=True))
 
         indexedConseqs = []
         for c in conseqs:

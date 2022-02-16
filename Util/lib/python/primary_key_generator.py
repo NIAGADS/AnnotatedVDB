@@ -4,7 +4,7 @@
 # @file primary_key_generator.py
 #
 # @brief  GenomicsDB Record Primary Key Generators
-# 
+#
 # @section primary_key_generator Description
 # Defines primary key generators for GenomicsDB records:
 ## - VariantPKGenerator: generator for variants
@@ -27,7 +27,7 @@
 from ga4gh.core import ga4gh_identify, ga4gh_serialize
 from ga4gh.vrs.extras.translator import Translator
 from ga4gh.vrs.dataproxy import create_dataproxy
-from GenomicsDBData.Util.utils import warning, die, xstr, pretty_print_dict
+from GenomicsDBData.Util.utils import warning, die, xstr, print_dict
 
 class VariantPKGenerator(object):
     """! Generator for variant record primary key.
@@ -47,7 +47,7 @@ class VariantPKGenerator(object):
    """
     
 
-    def __init__(self, genomeBuild, seqrepoProxyPath, maxSequenceLength=50, normalize=False, verbose=True, debug=False):
+    def __init__(self, genomeBuild, seqrepoProxyPath, maxSequenceLength=50, normalize=False, verbose=False, debug=False):
         """! VariantPKGenerator base class initializer
         @param genomeBuild          Assembly name (e.g., GRCh38, GRCh37)
         @param seqrepoProxyPath     full path to the file-based seqrepo data repository / required by GA4GH VRS
@@ -104,6 +104,7 @@ class VariantPKGenerator(object):
         chrm, position, ref, alt = metaseqId.split(':')
 
         pk = [chrm, position]
+        longSequence = False
         if len(ref) + len(alt) <= self._maxSequenceLength:
             pk.extend([ref,alt])
         else:
@@ -111,27 +112,9 @@ class VariantPKGenerator(object):
 
         if externalId is not None:
           pk.append(externalId)
-
+            
         return ':'.join(pk)
         
-
-    def get_ga4gh_vr_sequence_id(self, chrm):
-        """! get the GA4GH VR Sequence ID for a chromosome specified as GenomeBuild:ChrNum
-        e.g., 'GRCh38:10'
-
-        @param chrm              chromosome number (1..22, X, Y, M (MT?))
-        @returns                 ga4gh digested sequence id
-
-        updates an internal mapping to reduce computational overhead in case of bulk lookups
-        """
-
-        if chrm not in self._ga4gh_sequence_map:
-            gvrId = translate_sequence_identifier(self._genomeBuild + ":" + xstr(chrm), "ga4gh")
-            self._ga4gh_sequence_map[chrm] = gvrId[0]
-
-        return self._ga4gh_sequence_map[chrm]
-
-
 
     def get_vrs_allele_dict(self, metaseqId, serialize=False, toJson=False):
         """! get the GA4GH VRS Allele dict, given a variant
@@ -158,7 +141,7 @@ class VariantPKGenerator(object):
     def compute_vrs_identifier(self, metaseqId):
         """! return computed GA4GH identifier for the variant
         @param metaseqId          metaseq or SPDI formatted (with deletion sequence) variant representation
-        @returns                  VRS Computed Identifier
+        @returns                  VRS Computed Identifier with ga4gh:VA prefix removed
         """
         alleleDict = self.get_vrs_allele_dict(metaseqId)
         
@@ -167,11 +150,11 @@ class VariantPKGenerator(object):
                 "Input Variant":  metaseqId,
                 "VRS Representation" : alleleDict.for_json(),
                 }
-            warning(pretty_print_dict(debugOutput))
+            warning(print_dict(debugOutput, pretty=True))
 
         vrsComputedId = ga4gh_identify(alleleDict)
             
-        return vrsComputedId
+        return vrsComputedId.split('.')[1]
 
 
         

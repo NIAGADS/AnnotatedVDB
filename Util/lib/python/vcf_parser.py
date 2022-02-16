@@ -3,13 +3,20 @@ utils for parsing VCF files
 '''
 #pylint: disable=line-too-long,invalid-name
 
-from GenomicsDBData.Util.utils import die, warning, pretty_print_dict
+from GenomicsDBData.Util.utils import die, warning, print_dict
 from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
-    ''' utils for parse a single line of a vcf file '''
+    '''! utils for parse a single line of a vcf file '''
 
-    def __init__(self, entry):
+    def __init__(self, entry, verbose=False, debug=False):
+        """! VcfEntryParser base class initializer
+        @param entry       VCF Entry (row) in string format
+        @param verbose     flag for verbose output
+        @param debug       flag for debug output
+        @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
+        """
+        
         self._entry = None if entry is None else self.__parse_entry(entry)
         
 
@@ -23,7 +30,6 @@ class VcfEntryParser(object):
         fields = qw('chrom pos id ref alt qual filter info')
         values = inputStr.split('\t')
         result = convert_str2numeric_values(dict(zip(fields, values)))
-        die(pretty_print_dict(result))
 
         # now unpack the info field and save as its own
         info = dict(item.split('=') if '=' in item else [item, True] for item in result['info'].split(';'))
@@ -31,6 +37,18 @@ class VcfEntryParser(object):
 
         return result
 
+
+    def update_chromosome(self, chrmMap):
+        '''! update chromosome in entry based upon provided mapping
+        @param chrmMap          dict mapping sequence_id => chrm number
+        @raises TypeError if entry is not set
+        '''
+        if self._entry is None:
+            raise TypeError("VCF Parser: current entry is NoneType, cannot update chromosome value")
+        else:
+            self._entry['chrom'] = chrmMap[self._entry['chrom']]
+
+            
 
     def get_refsnp(self):
         ''' extract refsnp id from vcf entry dictionary

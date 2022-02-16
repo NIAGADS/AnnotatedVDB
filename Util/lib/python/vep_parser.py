@@ -1,23 +1,48 @@
-'''
-utils for parsing VEP JSON output
-'''
-# pylint: disable=line-too-long,invalid-name
+"""! @brief VEP JSON Output Parser"""
 
-from GenomicsDBData.Util.utils import warning, to_numeric, die
+##
+# @file vep_parser.py
+#
+# @brief  VEP JSON Output Parser
+# 
+# @section vep_parser Description
+# utils for parsing and manipulating the JSON output of [Ensembl's Variant
+# Effect Predictor (VEP) software](https://useast.ensembl.org/info/docs/tools/vep/index.html)
+#
+# @section todo_vep_parser TODO
+#
+# - None
+#
+# @section libraries_vep_parser Libraries/Modules
+# - operator: standard operators as functions / use operator.itemgetter for sorting
+# - [GenomicsDBData.Util.utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/utils.py)
+#   + provides variety of wrappers for standard file, string, list, and logging operations
+# - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
+#   + provides variety of wrappers for set and list operations
+# - [GenomicsDBData.Util.auto_viv_dict](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/auto_viv_dict.py)
+#   + dictionary allowing AutoVivification (perl ability to add nested levels to a hash on the fly, e.g., yourdict[yourkey][newkey1][newkey2] = 42)
+# - [AnnotatedVDB.Util.adsp_consequence_parser](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/adsp_consequence_parser.py)
+#   + parse & rank vep consequences according to ADSP standards
+#
+# @section author_vep_parser Author(s)
+# - Created by Emily Greenfest-Allen (fossilfriend) 2019
+# - Modified to remove consequence ranking to the ConsequenceParser class by EGA 2022
+
+# pylint: disable=line-too-long,invalid-name,no-self-use
+
+from operator import itemgetter
+
+from GenomicsDBData.Util.utils import warning, to_numeric, die, xstr
 from GenomicsDBData.Util.list_utils import qw
 from GenomicsDBData.Util.auto_viv_dict import AutoVivificationDict
 from AnnotatedVDB.Util.adsp_consequence_parser import ConsequenceParser
 
-from operator import itemgetter
-from datetime import datetime
-
 CONSEQUENCE_TYPES = qw('transcript regulatory_feature motif_feature intergenic')
-
 CODING_CONSEQUENCES= qw('synonymous_variant missense_variant inframe_insertion inframe_deletion stop_gained stop_lost stop_retained_variant start_lost frameshift_variant coding_sequence_variant')
 
 def is_coding_consequence(conseqs):
-    ''' check term against list of coding consequences and return 
-    True if found '''
+    """ check term against list of coding consequences and return 
+    True if found """
     terms = conseqs.split(',') if isinstance(conseqs, str) else conseqs
 
     matches = [value for value in terms
@@ -27,69 +52,82 @@ def is_coding_consequence(conseqs):
 
 
 class VepJsonParser(object):
-    ''' class to organize utils for parsing VEP JSON output '''
+    """! class to organize utils for parsing VEP JSON output """
 
-    def __init__(self, rankingFileName, rankConsequencesOnLoad=False, verbose=True):
+    def __init__(self, rankingFileName, rankConsequencesOnLoad=False, verbose=False):
         self._verbose = verbose
-        self._consequenceParser = ConsequenceParser(rankingFileName, rankOnLoad=rankConsequencesOnLoad)
+        self._consequenceParser = ConsequenceParser(rankingFileName, rankOnLoad=rankConsequencesOnLoad, verbose=verbose)
         self._annotation = None
+        self._rankedConsequences = {}
 
 
-    def assign_adsp_consequence_rank(self, conseq):
-        ''' assemble consequence terms into ordered comma delim string
-        and lookup in ranking table; add rank to consequence annotation;
-        backup old impact information
-        '''
+    def assign_adsp_consequence_rank(self, conseqDict):
+        """! find and return rank and coding status for a consequence combination
 
-        terms = conseq['consequence_terms']
-        conseq['rank'] = self._consequenceParser.find_matching_consequence(terms) 
-        conseq['consequence_is_coding'] = is_coding_consequence(terms)
+        @param conseqDict     dict (from VEP output) containing consequence that needs to be ranked
+        @returns updated conseqDict w/rank and is_coding flag
+        """
 
-        return conseq
+        terms = conseqDict['consequence_terms']
+        conseq = ','.join(terms)
+        if conseq not in self._rankedConsequences:
+            value = {'rank' : self._consequenceParser.find_matching_consequence(terms),
+                     'consequence_is_coding': is_coding_consequence(terms)}
+            self._rankedConsequences[conseq] = value
+
+        conseqDict.update(self._rankedConsequences[conseq])
+
+        return conseqDict
     
-        
 
     def __verify_annotation(self):
-        ''' check that annotation is set '''
+        """! check that annotation is set """
         assert self._annotation is not None, \
           "DEBUG - must set value of _annotation in the VEP parser to access it"
 
 
-
     def adsp_rank_and_sort_consequences(self):
-        ''' applies ADSP ranking to consequence, re orders the array and
+        """! applies ADSP ranking to consequence, re orders the array and
         and saves newly ordered list
-        '''
+        """
         for ctype in CONSEQUENCE_TYPES:
-            rankedConseqs = self._adsp_rank_consequences(ctype)
+            rankedConseqs = self.__adsp_rank_consequences(ctype)
             if rankedConseqs is not None:
                 self.set(ctype + '_consequences', rankedConseqs)
 
             
     # =========== modifiers ==================
     def set_annotation(self, annotation):
-        ''' set the annotation json '''
+        """! set the annotation json """
         self._annotation = annotation
 
     
     def set(self, key, value):
-        ''' set a value to annotation json '''
+        """! set a value to annotation json """
         self.__verify_annotation()
         self._annotation[key] = value
 
 
     # =========== accessors ==================
    
+    def get_added_conseq_summary(self):
+        """! @returns summary of added consequences from the consequence parser """
+        summary = "No new consequences added"
+        if self._consequenceParser.new_consequences_added():
+            summary = ' '.join(("Added", xstr(self._consequenceParser.get_new_conseq_count()),
+                       "new consequences:", '[' + ','.join(self._consequenceParser.get_added_consequences()) +']'))
+        return summary
+        
     def get_conseq_rank(self, conseq):
-        ''' return value from consequence rank map for the specified
-        consequence '''
+        """!@returns value from consequence rank map for the specified
+        consequence """
         return self._consequenceParser.get_consequence_rank(conseq)
 
 
-    def _adsp_rank_consequences(self, conseqType):
-        ''' extract consequences and apply ranking and sort,
+    def __adsp_rank_consequences(self, conseqType):
+        """ extract consequences and apply ranking and sort,
         convert from list to list of dicts, keyed on allele
-        to ensure consequences are sorted per allele'''
+        to ensure consequences are sorted per allele"""
 
         result = None
         consequences = self.get(conseqType + '_consequences')
@@ -117,11 +155,11 @@ class VepJsonParser(object):
 
 
     def get_frequencies(self, matchingVariantId=None):
-        ''' extract frequencies from colocated_variants section
+        """ extract frequencies from colocated_variants section
         for dbSNP VEP run -- sometimes VEP matches to variants with
         rsId different from current rsId; use matchingVariantId to ensure
         extracting the correct frequency (e.g. overlapping indels & snvs)
-        '''
+        """
 
         self.__verify_annotation()
         if 'colocated_variants' not in self._annotation:
@@ -158,10 +196,10 @@ class VepJsonParser(object):
 
 
     def __extract_frequencies(self, covar):
-        ''' extract frequencies and update minor allele to include 
+        """ extract frequencies and update minor allele to include 
         1000 Genomes global allele frequency if present (stored in
         colocated_variant field not frequencies array)
-        '''
+        """
 
         frequencies = {}
         if 'minor_allele' in covar:
@@ -174,7 +212,7 @@ class VepJsonParser(object):
             
 
     def __group_frequencies_by_source(self, frequencies):
-        ''' group 1000Genomes and gnomAD frequencies '''
+        """ group 1000Genomes and gnomAD frequencies """
 
         if frequencies is None:
             return None
@@ -182,9 +220,9 @@ class VepJsonParser(object):
         result = AutoVivificationDict() # needed to later add in minor allele freqs
         espKeys = ['aa', 'ea']
         for allele in frequencies:
-            gnomad = [{key: value} for key, value in frequencies[allele].items() if 'gnomad' in key ]
-            esp = [{key: value} for key, value in frequencies[allele].items() if key in espKeys]
-            genomes = [{key: value} for key, value in frequencies[allele].items() if 'gnomad' not in key and key not in espKeys]
+            gnomad = {key: value for key, value in frequencies[allele].items() if 'gnomad' in key }
+            esp = {key: value for key, value in frequencies[allele].items() if key in espKeys}
+            genomes = {key: value for key, value in frequencies[allele].items() if 'gnomad' not in key and key not in espKeys}
             if bool(gnomad):
                 result[allele]['gnomAD'] = gnomad
             if bool(genomes):
@@ -196,8 +234,8 @@ class VepJsonParser(object):
 
 
     def __get_consequences(self, key):
-        ''' special getter for consequences b/c fields may be missing; don't want
-        to throw error '''
+        """ special getter for consequences b/c fields may be missing; don't want
+        to throw error """
         if key in self._annotation:
             return self._annotation[key]
         else:
@@ -205,7 +243,7 @@ class VepJsonParser(object):
 
 
     def get(self, key):
-        ''' get the annotation value associated with the key '''
+        """ get the annotation value associated with the key """
         self.__verify_annotation()
 
         if key == 'frequencies':
@@ -217,7 +255,7 @@ class VepJsonParser(object):
 
 
     def get_annotation(self):
-        ''' return updated annotation '''
+        """ return updated annotation """
         return self._annotation
 
 

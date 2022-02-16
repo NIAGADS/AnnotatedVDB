@@ -8,12 +8,12 @@ from GenomicsDBData.Util.list_utils import qw
 BASE_LOAD_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
 def truncate_allele(value):
-    ''' wrapper for trunctate to 5 chars '''
-    return truncate(value, 5)
+    """ wrapper for trunctate to 5 chars """
+    return truncate(value, 8)
 
 
 class VariantAnnotator(object):
-    ''' functions used in different loading scripts / consolidated '''
+    """ functions used in different loading scripts / consolidated """
 
     def __init__(self, refAllele, altAllele, chrom, position):
         self._ref = refAllele
@@ -22,90 +22,89 @@ class VariantAnnotator(object):
         self._position = position
         self._metaseqId = None
         self.__set_metaseq_id()
-        
+
 
     def get_normalized_alleles(self, snvDivMinus=False):
-        ''' public return normalized alleles '''
+        """! public wrapper for __normalize_alleles / LEGACY
+        @returns normalized alleles """
         return self.__normalize_alleles(snvDivMinus)
-    
+
 
     def __normalize_alleles(self, snvDivMinus=False):
-        ''' remove leftmost alleles that are equivalent between
-        the ref & alt alleles; e.g. CAGT/CG <-> AGT/G
-        
-        if no normalization is possible, keeps normalized alleles as
+        """! left normalize VCF alleles
+        - remove leftmost alleles that are equivalent between the ref & alt alleles;
+        e.g. CAGT/CG <-> AGT/G
+
+        - if no normalization is possible, keeps normalized alleles as
         default equal to ref & alt
 
-        snvDivMinux -- return '-' for SNV deletion when True,
-        otherwise return empty string
-        returns a ref, alt tuple
-        '''
+        @params snvDivMinux       return '-' for SNV deletion when True, otherwise return empty string
+        @returns                  a tuple containing the normalized alleles (ref, alt)
+        """
 
         rLength = len(self._ref)
         aLength = len(self._alt)
-
+        
         if rLength == 1 and aLength == 1: # SNV no normalization needed
             return self._ref, self._alt
 
-        else:
-            lastMatchingIndex = - 1
-            for i in range(rLength):
-                r = self._ref[i:i + 1]
-                a = self._alt[i:i + 1]
-                if r == a:
-                    lastMatchingIndex = i
-                else:
-                    break
+        lastMatchingIndex = - 1
+        for i in range(rLength):
+            r = self._ref[i:i + 1]
+            a = self._alt[i:i + 1]
+            if r == a:
+                lastMatchingIndex = i
+            else:
+                break
 
-            if lastMatchingIndex >= 0: 
-                normAlt = self._alt[lastMatchingIndex + 1:len(self._alt)]
-                if not normAlt and snvDivMinus:
-                    normAlt = '-'
-                normRef = self._ref[lastMatchingIndex + 1:len(self._ref)]
-                if not normRef and snvDivMinus:
-                    normRef = '-'
+        if lastMatchingIndex >= 0:
+            normAlt = self._alt[lastMatchingIndex + 1:len(self._alt)]
+            if not normAlt and snvDivMinus:
+                normAlt = '-'
 
-                return normRef, normAlt
-                    
-            else: # MNV no normalization needed
-                return self._ref, self._alt
+            normRef = self._ref[lastMatchingIndex + 1:len(self._ref)]
+            if not normRef and snvDivMinus:
+                normRef = '-'
 
-        return self._ref, self._alt # not sure under what conditions this would occur, but covering bases
-            
-        
+            return normRef, normAlt
+
+        # MNV no normalization needed
+        return self._ref, self._alt
+
+
     def __set_metaseq_id(self):
-        ''' generate metaseq id '''
-        warning(self._chrom, self._position, self._ref, self._alt)
+        """! generate metaseq id and set value"""
         self._metaseqId = ':'.join((self._chrom, xstr(self._position), self._ref, self._alt))
 
-        
+
     def get_metaseq_id(self):
-        ''' return metaseq id '''
+        """! @returns metaseq id """
         return self._metaseqId
 
 
     def get_display_attributes(self, rsPosition = None):
-        ''' 
-        generate display alleles & dbSNP compatible start-end 
-        rsPosition = dbSNP property RSPOS 
-        '''
+        """! generate and return display alleles & dbSNP compatible start-end
+        @params rsPosition       dbSNP property RSPOS
+        @returns                 dict containing display attributes
+        """
 
         if rsPosition is None:
             rsPosition = self._position
+            
+        refLength = len(self._ref)
+        altLength = len(self._alt)
 
         normRef, normAlt = self.__normalize_alleles() # accurate length version
         nRefLength = len(normRef)
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
 
-        refLength = len(self._ref);
-        altLength = len(self._alt)
-        
+
         attributes = {
-            'location_start': self._posiion,
+            'location_start': self._position,
             'location_end': self._position
         }
-            
+
         if (refLength == 1 and altLength == 1): # SNV
             attributes.update({
                 'variant_class': "single nucleotide variant",
@@ -134,8 +133,8 @@ class VariantAnnotator(object):
                     'location_end': rsPosition + nRefLength - 1
                 })
         # end MNV
-        
-        elif (refLength > altLength): # deletions
+
+        elif refLength > altLength: # deletions
             attributes.update({'location_start': rsPosition})
 
             if nAltLength > 1: # INDEL
@@ -146,10 +145,17 @@ class VariantAnnotator(object):
 
                 if nRefLength == 0:
                     displayRef = self._ref[1:] # strip first character from reference
-                    attributes.update({
-                        'location_end': rsPosition + refLength - 1,
-                        'display_allele': "del" + displayRef + "ins" + normAlt,
-                        'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
+                    if displayRef == normAlt: # duplication
+                        attributes.update({
+                            'location_end': rsPosition + refLength - 1,
+                            'display_allele': 'dup' + normAlt,
+                            'sequence_allele': 'dup' + truncate_allele(normAlt)
+                        })
+                    else:
+                        attributes.update({
+                            'location_end': rsPosition + refLength - 1,
+                            'display_allele': "del" + displayRef + "ins" + normAlt,
+                            'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
@@ -158,7 +164,7 @@ class VariantAnnotator(object):
                         'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
                         })
                 # end INDEL
-                
+
             else: # deletion
                 attributes.update({
                     'variant_class': "deletion",
@@ -167,9 +173,9 @@ class VariantAnnotator(object):
                     'display_allele': "del" + normRef,
                     'sequence_allele': truncate_allele(normRef) + "/-"
                     })
-                    
+
         # end deletions
-        
+
         elif refLength < altLength: # insertions
             attributes.update({'location_start': rsPosition})
 
@@ -178,13 +184,20 @@ class VariantAnnotator(object):
                     'variant_class': 'indel',
                     'variant_class_abbrev': 'INDEL'
                     })
-                
+
                 if nRefLength == 0:
                     displayRef = self._ref[1:] # strip first character from reference
-                    attributes.update({
-                        'location_end': rsPosition + refLength - 1,
-                        'display_allele': "del" + displayRef + "ins" + normAlt,
-                        'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
+                    if displayRef == normAlt: # duplication
+                        attributes.update({
+                            'location_end': rsPosition + refLength - 1,
+                            'display_allele': 'dup' + normAlt,
+                            'sequence_allele': 'dup' + truncate_allele(normAlt)
+                            })
+                    else:
+                        attributes.update({
+                            'location_end': rsPosition + refLength - 1,
+                            'display_allele': "del" + displayRef + "ins" + normAlt,
+                            'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
@@ -201,5 +214,5 @@ class VariantAnnotator(object):
                     'display_allele': "ins" + normAlt,
                     'sequence_allele': "-/" + truncate_allele(normAlt)
                 })
-                
+
         return attributes

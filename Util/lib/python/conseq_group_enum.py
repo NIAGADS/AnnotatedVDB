@@ -31,6 +31,7 @@ class ConseqGroup(Enum):
 
     - terms added by EGA:
       + regulatory_region_ablation 02/14/2022
+      + TFBS_amplification 02/15/2022
 
     """
     
@@ -51,7 +52,7 @@ class ConseqGroup(Enum):
 
     MODIFIER = ['intron_variant', 'mature_miRNA_variant', 'non_coding_transcript_variant',
                 'non_coding_transcript_exon_variant', 'upstream_gene_variant',
-                'downstream_gene_variant', 'TF_binding_site_variant', 'TFBS_ablation',
+                'downstream_gene_variant', 'TF_binding_site_variant', 'TFBS_ablation', 'TFBS_amplification',
                 'TF_binding_site_variant', 'regulatory_region_variant', 'intergenic_variant'] # GRP 3
 
 
@@ -102,7 +103,7 @@ class ConseqGroup(Enum):
 
         @returns True if all terms are valid
         """
-        
+
         validTerms = ConseqGroup.get_all_terms()
 
         for c in conseqs:
@@ -141,7 +142,7 @@ class ConseqGroup(Enum):
         ~~~~~~~~~~~~~{.py}
         ConseqGroup.MODIFIER.get_members(conseqs) # usage
         ~~~~~~~~~~~~~
-        
+
         @returns list of conseqs that include terms belonging to the enum group
         """
 

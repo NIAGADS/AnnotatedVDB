@@ -55,7 +55,7 @@ CREATE OR REPLACE FUNCTION AnnotatedVDB.set_bin_index() RETURNS TRIGGER
     AS $$
 BEGIN
   IF NEW.bin_index IS NULL THEN
-    NEW.bin_index = find_bin_index(NEW.chromosome, NEW.location, NEW.location);
+    NEW.bin_index = find_bin_index(NEW.chromosome, (NEW.display_attributes->'location_start')::int, (NEW.display_attributes->'location_end')::int);
   END IF;
   RETURN NEW;
 END;
