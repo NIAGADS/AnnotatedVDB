@@ -31,10 +31,9 @@ from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
-from AnnotatedVDB.Util.variant_annotator import VariantAnnotator, BASE_LOAD_FIELDS
+from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 from AnnotatedVDB.Util.vep_parser import VepJsonParser
 from AnnotatedVDB.Util.primary_key_generator import VariantPKGenerator
-from Load.bin.load_dbsnp_vep_result import get_allele_consequences
 
 ALLOWABLE_COPY_FIELDS = ["chromosome", "record_primary_key", "position", 
                          "is_multi_allelic", "is_adsp_variant", "ref_snp_id", 
