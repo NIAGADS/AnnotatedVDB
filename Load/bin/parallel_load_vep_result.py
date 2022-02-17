@@ -13,7 +13,6 @@ import mmap
 import json
 import sys
 import csv
-import traceback
 
 from datetime import datetime
 from os import path
@@ -23,8 +22,8 @@ from concurrent.futures import ProcessPoolExecutor
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-from AnnotatedVDB.Util.variant_loader import VEPLoader as VariantLoader
-from AnnotatedVDB.Util.chromosomes import Human
+from AnnotatedVDB.Util.loaders import VEPVariantLoader as VariantLoader
+from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
 
 def parse_chromosome_map():

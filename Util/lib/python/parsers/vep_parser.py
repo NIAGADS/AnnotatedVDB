@@ -21,8 +21,8 @@
 #   + provides variety of wrappers for set and list operations
 # - [GenomicsDBData.Util.auto_viv_dict](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/auto_viv_dict.py)
 #   + dictionary allowing AutoVivification (perl ability to add nested levels to a hash on the fly, e.g., yourdict[yourkey][newkey1][newkey2] = 42)
-# - [AnnotatedVDB.Util.adsp_consequence_parser](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/adsp_consequence_parser.py)
-#   + parse & rank vep consequences according to ADSP standards
+# - [AnnotatedVDB.Util.parsers](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/parsers)
+#   + ConsequenceParser - parse & rank vep consequences according to ADSP standards
 #
 # @section author_vep_parser Author(s)
 # - Created by Emily Greenfest-Allen (fossilfriend) 2019
@@ -35,7 +35,8 @@ from operator import itemgetter
 from GenomicsDBData.Util.utils import warning, to_numeric, die, xstr
 from GenomicsDBData.Util.list_utils import qw
 from GenomicsDBData.Util.auto_viv_dict import AutoVivificationDict
-from AnnotatedVDB.Util.adsp_consequence_parser import ConsequenceParser
+
+from AnnotatedVDB.Util.parsers import ConsequenceParser
 
 CONSEQUENCE_TYPES = qw('transcript regulatory_feature motif_feature intergenic')
 CODING_CONSEQUENCES= qw('synonymous_variant missense_variant inframe_insertion inframe_deletion stop_gained stop_lost stop_retained_variant start_lost frameshift_variant coding_sequence_variant')

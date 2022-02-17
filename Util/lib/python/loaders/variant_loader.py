@@ -7,33 +7,49 @@
 #
 # @section variant_loader Description
 # provides functions & class for managing variant loads
+# - types
+#   + VariantLoader (parent class)
+#   + VEPVariantLoader (load from VEP result)
+#   + VCFVariantLoader (load from VCF)
 #
 # @section todo_variant_loader TODO
 # - create __verify_current_variant() to make sure __current_variant is set before trying to access
 # - extract common elements to parent class and make VEPLoader a child
 #
 # @section libraries_variant_loader Libraries/Modules
-#
-# - TBD
+# - json - parse/serialize JSON
+# - copy - for deep copy functionality 
+# - [GenomicsDBData.Util.utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/utils.py)
+#   + provides variety of wrappers for standard file, string, and logging operations
+# - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
+#   + provides variety list and set operations
+# - [GenomicsDBData.Util.postgres_dbi](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/postgres_dbi.py)
+#   + wrapper for connecting to database & handling PG errors
+# - [AnnotatedVDB.BinIndex](https://github.com/NIAGADS/AnnotatedVDB/blob/master/BinIndex/lib/python/bin_index.py)
+#   + functions to calculating bin index of a sequence feature
+# - [AnnotatedVDB.Util.algorithm_invocation](https://github.com/NIAGADS/AnnotatedVDB/blob/master/Util/lib/python/algorithm_invocation.py)
+#   + create entry in AnnotatedVDB.AlgorithmInvocation to track load & allow for UNDO
+# - [AnnotatedVDB.Util.parsers](https://github.com/NIAGADS/AnnotatedVDB/blob/master/Util/lib/python/parsers)
+#   + parsers for VCF and VEP JSON
 #
 # @section author_variant_loader Author(s)
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import json 
-import copy
-import traceback
 
+from copy import deepcopy
 from io import StringIO
 
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, to_numeric, deep_update
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from GenomicsDBData.Util.postgres_dbi import raise_pg_exception
+
+from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
+from AnnotatedVDB.Util.primary_key_generator import VariantPKGenerator
+from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser
+
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
-from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
-from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
-from AnnotatedVDB.Util.vep_parser import VepJsonParser
-from AnnotatedVDB.Util.primary_key_generator import VariantPKGenerator
 
 ALLOWABLE_COPY_FIELDS = ["chromosome", "record_primary_key", "position", 
                          "is_multi_allelic", "is_adsp_variant", "ref_snp_id", 
@@ -47,8 +63,8 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
 
-class VEPLoader(object):
-    """! functions for loading variants from VEP result """
+class VariantLoader(object):
+    """! functions for loading variants -- use child classes for specific datasources / result types """
     
     def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
         """! VariantLoader base class initializer
@@ -65,24 +81,26 @@ class VEPLoader(object):
         self.__log_file_handle = None if logFileName is None else open(logFileName, 'w') 
         self.__verbose = verbose
         self.__debug = debug
-        self.__commit = self.__args.commit
+        self.__datasource = datasource.lower() 
+        
         self.__alg_invocation_id = None
         self.__pk_generator = None
-        self.__vep_parser = None
         self.__bin_indexer = None
-        self.__cursor = None # database curspr
+        self.__cursor = None # database cursor
+        
         self.__counters = {}
         self.__chromosome_map = None
         self.__resume_after_variant = None
         self.__resume = True
-        self.__datasource = datasource.lower() 
         self.__current_variant = {}
+        
         self.__copy_buffer = None
         self.__copy_fields = None
         self.__copy_sql = None
  
         self.__initialize_counters()
         self.initialize_copy_buffer()
+        
 
     def close(self):
         self.close_copy_buffer()
@@ -95,6 +113,7 @@ class VEPLoader(object):
 
     def set_chromosome_map(self, chrmMap):
         self.__chromosome_map = chrmMap
+
 
     def get_current_variant_id(self):
         return self.__current_variant.id
@@ -116,17 +135,11 @@ class VEPLoader(object):
             self.log(str(err), prefix="ERROR")
             raise err
 
+
     def initialize_copy_sql(self, copyFields=None):
         self.__verify_copy_fields(copyFields)   
         self.__copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else copyFields
         
-        if not is_equivalent_list(self.__copyFields, DEFAULT_COPY_FIELDS):
-            # TODO - make VEPLoader a child of a more generic loader to handle user
-            # specified copy fields
-            err = NotImplementedError('Currently the VEP Variant Loader can only handle the default copy fields')
-            self.log(str(err), prefix="ERROR")
-            raise err
-     
         self.__copy_sql = "COPY AnnotatedVDB.Variant("  \
          + ','.join(self._copy_fields) \
          + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
@@ -180,16 +193,6 @@ class VEPLoader(object):
         self.__resume_after_variant = variantId
         self.__resume = False # skipping until variant is found
         
-
-    def initialize_vep_parser(self, rankingFile, rankConsequencesOnLoad, verbose):
-        """! initialize VEP Parser
-
-            @param rankingFile                file containing consequence ranks
-            @param rankConsequencesOnLoad     rank consequences on load?
-            @param verbose                  
-        """
-        self.__vep_parser = VepJsonParser(rankingFile, rankConsequencesOnLoad=rankConsequencesOnLoad, verbose=verbose)
-        
     
     def initialize_bin_indexer(self, gusConfigFile):
         """! initialize Bin Indexer 
@@ -241,11 +244,6 @@ class VEPLoader(object):
     def current_variant(self):
         """! @returns current variant """
         return self.__current_variant
-        
-        
-    def vep_parser(self):
-        """! @returns VEP Parser """
-        return self.__vep_parser
     
     
     def bin_indexer(self):
@@ -263,11 +261,11 @@ class VEPLoader(object):
         return self.__pk_generator
         
     
-    def set_algorithm_invocation(self, callingScript, comment):
+    def set_algorithm_invocation(self, callingScript, comment, commit=True):
         """! create entry in AnnotatedVDB.AlgorithmInvocation table for the data load
           @returns                 algorithm invocation id
         """
-        algInvocation = AlgorithmInvocation(callingScript, comment, self.__commit)
+        algInvocation = AlgorithmInvocation(callingScript, comment, commit)
         algInvocId = xstr(algInvocation.getAlgorithmInvocationId())
         algInvocation.close()
         return algInvocId
@@ -311,167 +309,8 @@ class VEPLoader(object):
                 self.log(message, prefix="WARNING")
                 message = ("Skipped", xstr(self.get_count('skip'), "variants"))
                 self.log(message, prefix="INFO")
-    
-    
-    def __get_result_frequencies(self):
-        """! get allele frequencies from the VEP result, catching null objects
-            @returns                frequency JSON
-        """
-        matchingVariantId = self.__current_variant.ref_snp_id if self.is_dbnp() else None
-        frequencies = self.__vep_parser.get_frequencies(matchingVariantId)
-        if frequencies is None:
-            return None
-        return frequencies['values']     
-    
-    
-    def __get_allele_frequencies(allele, frequencies):
-        """! given an allele and frequency dict, retrieve and return allele-specific frequencies
-            @param allele          allele to be matched
-            @param frequencies     result frequencies as JSON/dict
-            
-            @returns 
-        """
-        if frequencies is None:
-            return None
-
-        if allele in frequencies:
-            return frequencies[allele]
-
-        return None
-        
-    
-    def __parse_vcf_frequencies(self, allele, vcfGMAFs):
-        """! retrieve allele frequencies reported in INFO FREQ field
-        @param allele          allele to match (not normalized)
-        @param vcfGMAF         global minor allele frequencies from the VCF FREQ info field
-        @returns               dict of source:frequency for the allele
-        """
-        
-        if vcfGMAFs is None:
-            return None
-        
-        zeroValues = ['.', '0']
-
-        # FREQ=GnomAD:0.9986,0.001353|Korea1K:0.9814,0.01861|dbGaP_PopFreq:0.9994,0.0005901
-        # altIndex needs to be incremented as first value is for the ref allele)
-        altIndex = self.__current_variant.alt_alleles.split(',').index(allele) + 1
-        populationFrequencies = {pop.split(':')[0]:pop.split(':')[1] for pop in vcfGMAFs.split('|')}
-        vcfFreqs = {pop: {'gmaf': to_numeric(freq.split(',')[altIndex])} \
-                    for pop, freq in populationFrequencies.items() \
-                    if freq.split(',')[altIndex] not in zeroValues}
-    
-        return None if len(vcfFreqs) == 0 else vcfFreqs
 
 
-    def __add_vcf_frequencies(self, alleleFreqs, vcfFreqs, allele):
-        """! add VCF GMAF from the VCF FREQ INFO field to allele frequencies 
-
-            @param alleleFreqs         allele frequencies from VEP result
-            @param vcfFreqs            FREQ string from VCF INFO field
-            @param allele             _description_
-            @returns                 _description_
-        """
-        
-        alleleGMAFs = self.__parse_vcf_frequencies(allele, vcfFreqs)
-        if alleleFreqs is None:
-            return alleleGMAFs
-        if alleleGMAFs is None:
-            return alleleFreqs
-        
-        # update the alleleFreq dict, taking into account nestedness
-        return deep_update(alleleFreqs, alleleGMAFs)
-    
-        
-    def __parse_alt_alleles(self, vcfEntry, resultJson):
-        """! iterate over alleles and calculate values to load
-             add to copy buffer
-            @param vcfEntry             the VCF entry for the current variant
-            @param resultJSON           the VEP result / to be added to copyStr
-        """
-        # extract result frequencies
-        frequencies = self.__get_result_frequencies()
-        variant = self.__current_variant # just for ease/simplicity
-        variantExternalId = variant.ref_snp_id if 'ref_snp_id' in variant else None
-        
-        for alt in variant.alt_alleles:
-            self.increment_counter('variant')
-            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
-            normRef, normAlt = annotator.get_normalized_alleles()
-            binIndex = self.__bin_indexer.find_bin_index(variant.chromosome, variant.position,
-                                                         vcfEntry.infer_variant_end_location(alt, normRef))
-            
-            # NOTE: VEP uses left normalized alleles to indicate freq allele
-            # so need to use normalized alleles to match freq allele / consequence allele
-            # to the correct variant alt allele
-            alleleFreq = None if frequencies is None \
-                else self.__get_allele_frequencies(normAlt, frequencies)    
-            alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry.get_info('FREQ'), alt)
-                        
-            msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
-
-            recordPK = self.__pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)
-
-            copyValues = ['chr' + xstr(variant.chromosome),
-                          recordPK,
-                          xstr(variant.position),
-                          xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
-                          binIndex,
-                          xstr(variant.ref_snp_id, nullStr='NULL'),
-                          annotator.get_metaseq_id(),
-                          xstr(annotator.get_display_attributes(variant.rs_position), nulLStr='NULL'),
-                          xstr(alleleFreq, nullStr='NULL'),
-                          xstr(msConseq, nullStr='NULL'),
-                          xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
-                          xstr(resultJson),
-                          xstr(self.__alg_invocation_id)
-                          ]           
-       
-            self.add_copy_str('#'.join(copyValues))
-
-    
-    def parse_result(self, result):
-        """! parse & load single line from file 
-        @params result             the VEP result in string form
-        @params checkSkip          make checks to see if line should be skipped (after resume)
-        @returns copy string for db load 
-        """
-        
-        if self.resume_load() is False and self.__resume_after_variant is None:
-            err = ValueError('Must set VariantLoader result_afer_variant if resuming load')
-            self.log(str(err), prefix="ERROR")
-            raise err
-        
-        try:
-            self.increment_counter('line')
-            resultJson = json.loads(result)
-            self.__vep_parser.set_annotation(copy.deepcopy(resultJson))
-            
-            entry = VcfEntryParser(self.__vep_parser.get('input'))
-            
-            if not self.resume_load():
-                self.__update_resume_status(entry.get('id'))
-                return None
-            
-            # otherwise proceed with the parsing            
-            entry.update_chromosome(self.__chromosome_map)
-            
-            # there are json formatting issues w/the input str
-            # so replace w/the parsed entry; which is now a dict
-            resultJson['input'] = entry.get_entry()
-            
-            # extract identifying variant info for frequent reference
-            self.__current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
-            
-            # rank consequences
-            self.__vep_parser.adsp_rank_and_sort_consequences()
-    
-            # iterate over alleles
-            self.__parse_alt_alleles(entry, resultJson)
-            
-        except:
-            1 # print error
-    
-    
     def load_variants(self):
         """! perform copy operation to insert variants into the DB """ 
         try:
@@ -482,3 +321,18 @@ class VEPLoader(object):
             err = raise_pg_exception(e, returnError=True)
             self.log(str(err), prefix="ERROR")
             raise err
+        
+        
+    def parse_result(self, result):
+        """! parse & load single line from file 
+        @params result             the line from the result file
+        @params checkSkip          make checks to see if line should be skipped (after resume)
+        @returns copy string for db load 
+        """
+                
+        err = NotImplementedError('Result parsing is not defined for the VariantLoader parent class, please use result-specific loader')
+        self.log(str(err), prefix="ERROR")
+        raise err
+      
+    
+

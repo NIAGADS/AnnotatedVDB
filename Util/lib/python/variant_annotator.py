@@ -2,7 +2,6 @@
 #!pylint: disable=invalid-name
 
 from GenomicsDBData.Util.utils import xstr, truncate, reverse, warning
-from GenomicsDBData.Util.list_utils import qw
 
 def truncate_allele(value):
     """ wrapper for trunctate to 5 chars """

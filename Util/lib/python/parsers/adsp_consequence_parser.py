@@ -33,7 +33,7 @@
 #   + provides variety of wrappers for standard file, string, list, and logging operations
 # - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
 #   + provides variety of wrappers for set and list operations
-# - [AnnotatedVDB.Util.conseq_group_enum](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/conseq_group_enum.py)
+# - [AnnotatedVDB.Util.enums](https://github.com/NIAGADS/AnnotatedVDB/tree/master/Util/lib/python/enums)
 #   + enum listing groupings of consequence terms required to determine ADSP rankings
 #
 # @section author_adsp_consequence_parser Author(s)
@@ -49,7 +49,8 @@ from datetime import date
 
 from GenomicsDBData.Util.utils import warning, to_numeric, die, int_to_alpha, verify_path, print_dict, xstr
 import GenomicsDBData.Util.list_utils as lu
-from AnnotatedVDB.Util.conseq_group_enum import ConseqGroup
+
+from AnnotatedVDB.Util.enums import ConseqGroup
 
 class ConsequenceParser(object):
     """! Parser for reading and re-ranking ADSP ranked consequences of VEP output """
