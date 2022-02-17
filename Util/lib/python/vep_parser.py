@@ -224,7 +224,7 @@ class VepJsonParser(object):
             esp = {key: value for key, value in frequencies[allele].items() if key in espKeys}
             genomes = {key: value for key, value in frequencies[allele].items() if 'gnomad' not in key and key not in espKeys}
             if bool(gnomad):
-                result[allele]['gnomAD'] = gnomad
+                result[allele]['GnomAD'] = gnomad
             if bool(genomes):
                 result[allele]['1000Genomes'] = genomes
             if bool(esp):
@@ -257,5 +257,63 @@ class VepJsonParser(object):
     def get_annotation(self):
         """ return updated annotation """
         return self._annotation
+    
+    
+    def __get_allele_consequences(self, allele, ctypeKey):
+        """! get consequences of specified type for the allele, performs None checks
+        @param allele                    the allele to be matched
+        @param ctypeKey                  consequence type key (a CONSEQUENCE_TYPE + '_consequences'
+        @returns dict of all consequences of the specified type for the specified allele"""
+
+        conseqs = self.get(ctypeKey)
+        if conseqs is None:
+            return None
+
+        if allele in conseqs:
+            return conseqs[allele]
+
+        return None # allele not in conseqs
 
 
+    def get_allele_consequences(self, allele, conseqType=None):
+        """! get dict of consequences for the specified allele
+        if called after ADSP ranking has been done, then retrieved 
+        consequences will be ADSP ranked 
+        
+        @param allele                   allele to be matched
+        @param conseqType               consequence type (from CONSEQUENCE_TYPES) / if None, iterate over all types
+        @returns dict of consequences matched to the allele
+        """
+        if conseqType is None: # get all conseqs / return nested dict
+            alleleConseqs = {}
+            for ctype in CONSEQUENCE_TYPES:
+                ctypeKey = ctype + '_consequences'
+                conseqs = self.get(ctypeKey)
+                if conseqs is not None and allele in conseqs:
+                    alleleConseqs[ctypeKey] = conseqs[allele]
+
+            return None if len(alleleConseqs) == 0 else alleleConseqs
+        
+        else:
+            ctypeKey = conseqType + '_consequences'
+            conseqs = self.get(ctypeKey)
+            return conseqs[allele] \
+                if conseqs is not None and allele in conseqs \
+                else None
+
+
+    def get_most_severe_consequence(self, allele):
+        """! retrieve most severe consequence from the VEP JSON Parser,
+        for the specified allele; returns None if no consequences are found
+        return first hit among transcript, then regulatory feature, then intergenic
+        consequences.  If called after ADSP ranking and sorting is done on the result, 
+        the consequences will be ADSP ranked
+        @param           allele to be matched
+        @result          dict representation of most severe consequence
+        """
+        for ctype in CONSEQUENCE_TYPES:
+            msConseq = self.get_allele_consequences(allele, conseqType=ctype)
+            if msConseq is not None:
+                return msConseq[0]
+            
+        return None

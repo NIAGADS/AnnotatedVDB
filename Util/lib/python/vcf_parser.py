@@ -3,7 +3,9 @@ utils for parsing VCF files
 '''
 #pylint: disable=line-too-long,invalid-name
 
-from GenomicsDBData.Util.utils import die, warning, print_dict
+from types import SimpleNamespace
+
+from GenomicsDBData.Util.utils import xstr, die, warning, print_dict
 from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
@@ -17,7 +19,7 @@ class VcfEntryParser(object):
         @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
         """
         
-        self._entry = None if entry is None else self.__parse_entry(entry)
+        self.__entry = None if entry is None else self.__parse_entry(entry)
         
 
     def __parse_entry(self, inputStr):
@@ -43,43 +45,69 @@ class VcfEntryParser(object):
         @param chrmMap          dict mapping sequence_id => chrm number
         @raises TypeError if entry is not set
         '''
-        if self._entry is None:
-            raise TypeError("VCF Parser: current entry is NoneType, cannot update chromosome value")
-        else:
-            self._entry['chrom'] = chrmMap[self._entry['chrom']]
+        self.__verify_entry()
+        if chrmMap is not None:
+            self.__entry['chrom'] = chrmMap[self.__entry['chrom']]
 
             
-
+    def get_variant(self, dbSNP = False, namespace=False):
+        """! extract variant attributes from a VCF entry 
+        @param dbSNP                  dbSNP VCF (expect fields that may not be in a generic VCF)
+        @param namespace              if True return SimpleNamespace, else return dict
+        @returns attributes as a simple namespace so they can be accessed in dot notation"""
+        attributes = {}
+        if dbSNP:
+            chrom = xstr(self.get('chrom'))
+            if chrom == 'MT':
+                chrom = 'M'
+            altAllele = self.get('alt').split(',')
+            variant =  {
+                'id' : self.get('id'),
+                'ref_snp_id' : self.get_refsnp(),
+                'ref_allele' : self.get('ref'),
+                'alt_alleles' : altAllele,
+                'is_multi_allelic' : len(altAllele) > 1,
+                'chromosome' : xstr(chrom),
+                'position' : int(self.get('pos')),
+                'rs_position' : self.get_info('RSPOS'),
+            }
+        else:
+            err = NotImplementedError('VcfEntryParser.get_variant not implemented for non-dbSNP VCF variants')
+            raise err
+        
+        return SimpleNamespace(**variant) if namespace else variant
+    
+    
     def get_refsnp(self):
         ''' extract refsnp id from vcf entry dictionary
         (output from parse_vcf_entry)
         '''
         self.__verify_entry()
 
-        if 'rs' in self._entry['id']:
-            return self._entry['id']
-        if 'RS' in self._entry['info']:
-            return 'rs' + str(self._entry['info']['RS'])
+        if 'rs' in self.__entry['id']:
+            return self.__entry['id']
+        if 'RS' in self.__entry['info']:
+            return 'rs' + str(self.__entry['info']['RS'])
         else:
             return None
 
 
     def get_entry(self):
         ''' return the entry '''
-        return self._entry
+        return self.__entry
 
     
     def get(self, key):
         ''' get the entry value associated with the key '''
         self.__verify_entry()
-        return self._entry[key]
+        return self.__entry[key]
 
 
     def get_info(self, key):
         ''' get the INFO value associated with the key '''
         self.__verify_entry()
-        if key in self._entry['info']:
-            return self._entry['info'][key]
+        if key in self.__entry['info']:
+            return self.__entry['info'][key]
         else:
             return None
         
@@ -125,7 +153,7 @@ class VcfEntryParser(object):
 
     def __verify_entry(self):
         ''' check that entry is set '''
-        assert self._entry is not None, \
+        assert self.__entry is not None, \
           "DEBUG - must set value of _entry in the VCF parser before attempting to access"
 
 
