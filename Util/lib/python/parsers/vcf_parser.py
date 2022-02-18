@@ -5,7 +5,7 @@ utils for parsing VCF files
 
 from types import SimpleNamespace
 
-from GenomicsDBData.Util.utils import xstr, die, warning, print_dict
+from GenomicsDBData.Util.utils import xstr, die, warning, print_dict, print_args
 from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
@@ -34,7 +34,12 @@ class VcfEntryParser(object):
         result = convert_str2numeric_values(dict(zip(fields, values)))
 
         # now unpack the info field and save as its own
-        info = dict(item.split('=') if '=' in item else [item, True] for item in result['info'].split(';'))
+        try:
+            info = dict(item.split('=') if '=' in item else [item, True] for item in result['info'].split(';'))
+        except Exception as err:
+            warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result[info]))
+            raise err
+        
         result['info'] = convert_str2numeric_values(info)
 
         return result
@@ -51,22 +56,23 @@ class VcfEntryParser(object):
 
             
     def get_variant(self, dbSNP = False, namespace=False):
-        """! extract variant attributes from a VCF entry 
+        """! extract basic variant attributes from a VCF entry 
         @param dbSNP                  dbSNP VCF (expect fields that may not be in a generic VCF)
         @param namespace              if True return SimpleNamespace, else return dict
         @returns attributes as a simple namespace so they can be accessed in dot notation"""
+
         attributes = {}
         if dbSNP:
             chrom = xstr(self.get('chrom'))
             if chrom == 'MT':
                 chrom = 'M'
-            altAllele = self.get('alt').split(',')
+            altAlleles = self.get('alt').split(',')
             variant =  {
                 'id' : self.get('id'),
                 'ref_snp_id' : self.get_refsnp(),
                 'ref_allele' : self.get('ref'),
-                'alt_alleles' : altAllele,
-                'is_multi_allelic' : len(altAllele) > 1,
+                'alt_alleles' : altAlleles,
+                'is_multi_allelic' : len(altAlleles) > 1,
                 'chromosome' : xstr(chrom),
                 'position' : int(self.get('pos')),
                 'rs_position' : self.get_info('RSPOS'),

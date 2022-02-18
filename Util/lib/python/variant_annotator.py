@@ -95,7 +95,7 @@ class VariantAnnotator(object):
         refLength = len(self.__ref)
         altLength = len(self.__alt)
 
-        normRef, normAlt = self.___normalize_alleles() # accurate length version
+        normRef, normAlt = self.__normalize_alleles() # accurate length version
         nRefLength = len(normRef)
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)

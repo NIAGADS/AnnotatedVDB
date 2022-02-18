@@ -9,7 +9,7 @@
 # provides functions & class for managing variant loads
 #
 # @section todo_vep_variant_loader TODO
-# - create __verify_current_variant() to make sure __current_variant is set before trying to access
+# - create __verify_current_variant() to make sure _current_variant is set before trying to access
 # - extract common elements to parent class and make VEPLoader a child
 #
 # @section libraries_vep_variant_loader Libraries/Modules
@@ -36,7 +36,7 @@ import traceback
 from copy import deepcopy
 from io import StringIO
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, to_numeric, deep_update
+from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
@@ -59,8 +59,9 @@ class VEPVariantLoader(VariantLoader):
             
             @returns                   An instance of the VepVariantLoader class with initialized counters and copy buffer
         """
-        super().__init__(self, datasource, logFileName, verbose, debug)
+        super(VEPVariantLoader, self).__init__(datasource, logFileName, verbose, debug)
         self.__vep_parser = None
+        self.log((type(self).__name__, "initialized"), prefix="INFO")
 
 
     def initialize_vep_parser(self, rankingFile, rankConsequencesOnLoad, verbose):
@@ -82,7 +83,7 @@ class VEPVariantLoader(VariantLoader):
         """! get allele frequencies from the VEP result, catching null objects
             @returns                frequency JSON
         """
-        matchingVariantId = self.__current_variant.ref_snp_id if self.is_dbnp() else None
+        matchingVariantId = self._current_variant.ref_snp_id if self.is_dbsnp() else None
         frequencies = self.__vep_parser.get_frequencies(matchingVariantId)
         if frequencies is None:
             return None
@@ -119,7 +120,7 @@ class VEPVariantLoader(VariantLoader):
 
         # FREQ=GnomAD:0.9986,0.001353|Korea1K:0.9814,0.01861|dbGaP_PopFreq:0.9994,0.0005901
         # altIndex needs to be incremented as first value is for the ref allele)
-        altIndex = self.__current_variant.alt_alleles.split(',').index(allele) + 1
+        altIndex = self._current_variant.alt_alleles.index(allele) + 1
         populationFrequencies = {pop.split(':')[0]:pop.split(':')[1] for pop in vcfGMAFs.split('|')}
         vcfFreqs = {pop: {'gmaf': to_numeric(freq.split(',')[altIndex])} \
                     for pop, freq in populationFrequencies.items() \
@@ -154,16 +155,19 @@ class VEPVariantLoader(VariantLoader):
             @param resultJSON           the VEP result / to be added to copyStr
         """
         # extract result frequencies
+        if self._debug:
+            self.log('Entering ' + type(self).__name__ + '.' + 'parse_alt_alleles', prefix="DEBUG")
+            
         frequencies = self.__get_result_frequencies()
-        variant = self.__current_variant # just for ease/simplicity
-        variantExternalId = variant.ref_snp_id if 'ref_snp_id' in variant else None
+        variant = self._current_variant # just for ease/simplicity
+        variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
         
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
             normRef, normAlt = annotator.get_normalized_alleles()
-            binIndex = self.__bin_indexer.find_bin_index(variant.chromosome, variant.position,
-                                                         vcfEntry.infer_variant_end_location(alt, normRef))
+            binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
+                                                        vcfEntry.infer_variant_end_location(alt, normRef))
             
             # NOTE: VEP uses left normalized alleles to indicate freq allele
             # so need to use normalized alleles to match freq allele / consequence allele
@@ -174,23 +178,26 @@ class VEPVariantLoader(VariantLoader):
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
 
-            recordPK = self.__pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)
+            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)
 
             copyValues = ['chr' + xstr(variant.chromosome),
-                          recordPK,
-                          xstr(variant.position),
-                          xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
-                          binIndex,
-                          xstr(variant.ref_snp_id, nullStr='NULL'),
-                          annotator.get_metaseq_id(),
-                          xstr(annotator.get_display_attributes(variant.rs_position), nulLStr='NULL'),
-                          xstr(alleleFreq, nullStr='NULL'),
-                          xstr(msConseq, nullStr='NULL'),
-                          xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
-                          xstr(resultJson),
-                          xstr(self.__alg_invocation_id)
-                          ]           
+                        recordPK,
+                        xstr(variant.position),
+                        xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
+                        binIndex,
+                        xstr(variant.ref_snp_id, nullStr='NULL'),
+                        annotator.get_metaseq_id(),
+                        xstr(annotator.get_display_attributes(variant.rs_position), nullStr='NULL'),
+                        xstr(alleleFreq, nullStr='NULL'),
+                        xstr(msConseq, nullStr='NULL'),
+                        xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
+                        xstr(resultJson),
+                        xstr(self._alg_invocation_id)
+                        ]           
        
+            if self._debug:
+                self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
+                self.log(copyValues, prefix="DEBUG")
             self.add_copy_str('#'.join(copyValues))
 
     
@@ -200,8 +207,11 @@ class VEPVariantLoader(VariantLoader):
         @params checkSkip          make checks to see if line should be skipped (after resume)
         @returns copy string for db load 
         """
-        
-        if self.resume_load() is False and self.__resume_after_variant is None:
+        if self._debug:
+            self.log('Entering ' + type(self).__name__ + '.' + 'parse_result', prefix="DEBUG")
+            self.log(('Resume?', self.resume_load()), prefix="DEBUG")
+            
+        if self.resume_load() is False and self._resume_after_variant is None:
             err = ValueError('Must set VariantLoader result_afer_variant if resuming load')
             self.log(str(err), prefix="ERROR")
             raise err
@@ -210,30 +220,32 @@ class VEPVariantLoader(VariantLoader):
             self.increment_counter('line')
             resultJson = json.loads(result)
             self.__vep_parser.set_annotation(deepcopy(resultJson))
-            
+ 
             entry = VcfEntryParser(self.__vep_parser.get('input'))
-            
+                
             if not self.resume_load():
-                self.__update_resume_status(entry.get('id'))
+                self._update_resume_status(entry.get('id'))
                 return None
             
             # otherwise proceed with the parsing            
-            entry.update_chromosome(self.__chromosome_map)
+            entry.update_chromosome(self._chromosome_map)
             
             # there are json formatting issues w/the input str
             # so replace w/the parsed entry; which is now a dict
             resultJson['input'] = entry.get_entry()
             
             # extract identifying variant info for frequent reference
-            self.__current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
-            
+            self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
+        
             # rank consequences
             self.__vep_parser.adsp_rank_and_sort_consequences()
     
             # iterate over alleles
             self.__parse_alt_alleles(entry, resultJson)
             
-        except:
-            1 # print error
+        except Exception as err:
+            self.log(str(err), prefix="ERROR")
+            raise err
+            
     
     

@@ -22,7 +22,7 @@ from concurrent.futures import ProcessPoolExecutor
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-from AnnotatedVDB.Util.loaders import VEPVariantLoader as VariantLoader
+from AnnotatedVDB.Util.loaders import VEPVariantLoader 
 from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
 
@@ -56,8 +56,8 @@ def load_annotation(chromosome):
     lfn = "annotatedvdb_dbsnp_chr_" + xstr(chromosome) + '.log';
     warning("Logging to", lfn)
     
-    loader = VariantLoader('dbSNP', logFileName=lfn, 
-                           verbose=args.verbose, debug=args.debug)
+    loader = VEPVariantLoader('dbSNP', logFileName=lfn, verbose=args.verbose, debug=args.debug)
+    
     if args.verbose:
         loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
@@ -65,10 +65,10 @@ def load_annotation(chromosome):
     database.connect()
     
     loader.set_algorithm_invocation('parallel_load_vep_result', 'chr' + xstr(chromosome) + '|' + print_args(args, False))
-    loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id), prefix="INFO")
+    loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
     
-    loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxypath)
-    loader.initialize_vep_parser(args.rankingFie, True, args.verbose)
+    loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
+    loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
     loader.initialize_bin_indexer(args.gusConfigFile)
     loader.initialize_copy_sql() # use default copy fields
     loader.set_chromosome_map(chrmMap)
@@ -83,26 +83,34 @@ def load_annotation(chromosome):
         loader.set_resume_after_variant(args.resumeAfter)
     with database.cursor() as cursor:
         loader.set_cursor(cursor)
-        lineCount = 1
+        lineCount = 0
         with open(fileName, 'r') as fhandle:
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
                 for line in gfh:
-                    try: 
-                        if lineCount == 1 \
-                            or lineCount % args.commitAfter == 0: 
+                    try:      
+                        if (lineCount == 0 and not loader.resume_load()) \
+                            or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
                             if args.debug:
-                                loader.log('Processing new copy object')
+                                loader.log('Processing new copy object', prefix="DEBUG")
                             tstart = datetime.now()
                             
                         loader.parse_result(line.rstrip())
-
+                        lineCount += 1
+                        
+                        if not loader.resume_load():
+                            continue
+                        
+                        if loader.resume_load() != resume: # then you are at the resume cutoff
+                            resume = True
+                            continue
+                        
                         if lineCount % args.logAfter == 0 \
                             and lineCount % args.commitAfter != 0:
                             loader.log((lineCount, "lines (", 
                                         loader.get_count('variant'), ") variants"), 
-                                       prefix="PARSED")
-                      
+                                        prefix="PARSED")
+
                         if lineCount % args.commitAfter == 0:
                             if args.debug:
                                 tendw = datetime.now()
@@ -110,7 +118,7 @@ def load_annotation(chromosome):
                                     str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
                                 loader.log(message, prefix="DEBUG") 
                                 
-                            loader.insert_variants()
+                            loader.load_variants()
 
                             message = '{:,}'.format(loader.get_count('variant')) + " variants"
                             messagePrefix = "COMMITTED"

@@ -204,7 +204,7 @@ def load_annotation(chromosome):
                                 skipCount = skipCount + 1
                                 continue
 
-                        if lineCount == 1 or variantCount % args.commitAfter == 0:
+                        if lineCount == 1 or lineCount % args.commitAfter == 0:
                             if args.debug:
                                 warning('Processing new copy object', file=lfh, flush=True)
                             tstart = datetime.now()
