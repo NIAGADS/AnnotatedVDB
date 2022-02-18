@@ -35,9 +35,9 @@ class VcfEntryParser(object):
 
         # now unpack the info field and save as its own
         try:
-            info = dict(item.split('=') if '=' in item else [item, True] for item in result['info'].split(';'))
+            info = dict(item.split('=',1) if '=' in item else [item, True] for item in result['info'].split(';'))
         except Exception as err:
-            warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result[info]))
+            warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
             raise err
         
         result['info'] = convert_str2numeric_values(info)
