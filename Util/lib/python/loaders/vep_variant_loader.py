@@ -90,7 +90,7 @@ class VEPVariantLoader(VariantLoader):
         return frequencies['values']     
     
     
-    def __get_allele_frequencies(allele, frequencies):
+    def __get_allele_frequencies(self, allele, frequencies):
         """! given an allele and frequency dict, retrieve and return allele-specific frequencies
             @param allele          allele to be matched
             @param frequencies     result frequencies as JSON/dict
