@@ -1,6 +1,7 @@
 """! @brief VEP JSON Output Parser"""
 
 ##
+# @package parsers
 # @file vep_parser.py
 #
 # @brief  VEP JSON Output Parser

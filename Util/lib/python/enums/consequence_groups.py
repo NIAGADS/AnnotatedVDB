@@ -1,6 +1,7 @@
 """! @brief ADSP Consequence Group Enum"""
 
 ##
+# @package enums
 # @file consequence_groups.py
 #
 # @brief  ADSP Consequence Group Enum

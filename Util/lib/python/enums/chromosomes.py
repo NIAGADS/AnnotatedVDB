@@ -1,11 +1,11 @@
-'''
-enums defining chromomosomes
-# NOTE must install enum34 (backport of enum) to iterate over the 
-enum object in python 2.7
-'''
+##
+# @package enums
+# @file chromosomes.py
+# @brief enums defining chromomosomes
+# NOTE must install enum34 (backport of enum) to iterate over the enum object in python 2.7
+
 
 from enum import Enum 
-
 class Human(Enum):
     # name, value pair
     # e.g., for chr in Chromosome: print(chr.name)

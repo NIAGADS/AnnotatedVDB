@@ -1,6 +1,7 @@
 """! @brief ADSP VEP Consequence Parser and Ranker"""
 
 ##
+# @package parsers
 # @file adsp_consequence_parser.py
 #
 # @brief  ADSP VEP Consequence Parser and Ranker
@@ -83,16 +84,15 @@ class ConsequenceParser(object):
 
     def save_ranking_file(self, fileName=None):
         """! save ranking if file
-          
         @param fileName   output file name; if no file name is provided, will upate original file name with current date 
         """
-      
+
         header = lu.qw('consequence rank')
         version = "_v" + xstr(self.get_new_conseq_count())
         if fileName is None:
             fileName = self._rankingFileName.split('.')[0] + "_" \
-              + date.today().strftime("%m-%d-%Y") + ".txt"
-              
+                + date.today().strftime("%m-%d-%Y") + ".txt"
+
         if verify_path(fileName): # file already exists / add versioning for each newly added conseq
             fileName = fileName.split('.')[0] + version  + ".txt"
 
@@ -167,10 +167,10 @@ class ConsequenceParser(object):
         
 
     def find_matching_consequence(self, terms, failOnMissing=False):
-        ''' match list of consequences against those in the
+        """! match list of consequences against those in the
         rankings and return ranking info associated with match
 
-        attempt to integrate into the rankings if not found '''
+        attempt to integrate into the rankings if not found """
         
         if len(terms) == 0:
             return self.get_consequence_rank(terms[0])
@@ -203,18 +203,18 @@ class ConsequenceParser(object):
     # =========== reranking functions  ==================
 
     def get_known_consequences(self):
-        ''' extract the known consequences/combos 
+        """! extract the known consequences/combos 
             replaces `ret_sort_combos`
 
             returns as set to try and prevent duplicates
 
             b/c these are keys to a hash, they are unique
-        '''
+        """
         return list(self._consequenceRankings.keys()) # convert from odict_keys object
 
 
     def __add_consequence(self, terms):
-        ''' add new consequence (combination) to the list of known consequences '''
+        """! add new consequence (combination) to the list of known consequences """
 
         # extract list of known consequences & add the new one
         referenceConseqs = self.get_known_consequences()
@@ -231,9 +231,9 @@ class ConsequenceParser(object):
 
         
     def __update_rankings(self, terms=None):
-        '''' update rankings, adding in new term combination if specified,
+        """! update rankings, adding in new term combination if specified,
         where terms is a list of one or more consequences
-        
+        get
         ranks are applied according to the following logic:
 
         1. Split all consequence combos into 4 groups:
@@ -248,7 +248,7 @@ class ConsequenceParser(object):
 
         TODO: fill in documentation from notes from N. Wheeler
 
-        '''
+        """
 
         if self._verbose:
             warning("Updating consequence rankings")
@@ -279,7 +279,7 @@ class ConsequenceParser(object):
 
             
     def __sort_consequences(self, conseqs, conseqGrp):
-        ''' 
+        """! 
         sort an input list of consequence terms (a consequence combination) according 
         to a numerially indexed dictionary of their rankings
         
@@ -288,7 +288,7 @@ class ConsequenceParser(object):
 
         returns a list of consequence terms sorted as follows:
         
-        '''
+        """
 
         # if MODIFIER (GRP 3) use MODIFIER,
         # else use HIGH_IMPACT
@@ -321,8 +321,7 @@ class ConsequenceParser(object):
 
 
     def __calculate_ranking_indexes(self, conseq, grpDict, refDict):
-        '''  return tuple of
-             (alphabetic representation, internally sorted consequence combo as a list)
+        """!  return tuple of alphabetic representation, internally sorted consequence combo as a list)
 
         given a set of input consequences 
         and a numerically indexed dictionary of their ranking based on grp and reference dict
@@ -336,7 +335,7 @@ class ConsequenceParser(object):
           --> here, a ranking dictionary containing all terms is passed for evaluating
           sets with non-exclusive group membership, and the alphabetized non-member terms
           are ranked according that dict
-        '''
+        """
 
         terms = conseq.split(',')
         if self._debug:
@@ -370,10 +369,10 @@ class ConsequenceParser(object):
 
 
     def __internal_consequence_sort(self, terms, rankings, returnStr = False):
-        ''' sort a consequence list by a list of rankings
+        """! sort a consequence list by a list of rankings
         rankings are based on ConseqGroup indexes / hence 'internal'
         if returnStr = true, return comma separated string, else return sorted list
-        '''
+        """
         rankingDict = dict(zip(terms, rankings))
         sortedDict =  OrderedDict(sorted(rankingDict.items(), key=lambda kv: kv[1])) # sort by values
         if returnStr:
@@ -383,12 +382,12 @@ class ConsequenceParser(object):
     
 
     def __get_consequence_rank_list(self, terms, rankingDict):
-        '''
+        """!
         retrieve a list of consequence rankings for each term in 
         the consequence combination according to a numerially indexed 
         dictionary of consequences in the assigned group
 
         # NOTE: all terms should be in the rankingDict by this time / errors should
         # have been caught when list of consequences was split into groups
-        '''
+        """
         return [rankingDict[c] for c in terms]

@@ -1,6 +1,7 @@
 """! @brief GenomicsDB Record Primary Key Generators"""
 
 ##
+# @package util
 # @file primary_key_generator.py
 #
 # @brief  GenomicsDB Record Primary Key Generators

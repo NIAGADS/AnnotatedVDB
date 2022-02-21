@@ -3,6 +3,9 @@ utils for parsing CADD tbx file
 '''
 #pylint: disable=line-too-long,invalid-name,method-hidden
 
+##
+# @package util
+
 import pysam
 import json
 from os import path

@@ -2,6 +2,8 @@
 utils for parsing VCF files
 '''
 #pylint: disable=line-too-long,invalid-name
+##
+# @package parsers
 
 from types import SimpleNamespace
 
@@ -50,12 +52,12 @@ class VcfEntryParser(object):
 
     def update_chromosome(self, chrmMap):
         '''! update chromosome in entry based upon provided mapping
-        @param chrmMap          dict mapping sequence_id => chrm number
-        @raises TypeError if entry is not set
+        @param chrmMap          ChromosomeMap object mapping sequenceID => chrm number
+        @exception TypeError if entry is not set / AttributeError if chromosome number not in the map
         '''
         self.__verify_entry()
         if chrmMap is not None:
-            self.__entry['chrom'] = chrmMap[self.__entry['chrom']]
+            self.__entry['chrom'] = chrmMap.get(self.__entry['chrom'])
 
             
     def get_variant(self, dbSNP = False, namespace=False):

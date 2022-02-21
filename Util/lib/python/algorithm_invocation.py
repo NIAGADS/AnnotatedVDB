@@ -4,6 +4,8 @@
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 from GenomicsDBData.Util.utils import warning
 
+##
+# @package util
 
 class AlgorithmInvocation(object):
     """ transaction management for algorithm invocation """

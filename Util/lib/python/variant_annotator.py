@@ -1,5 +1,7 @@
 """ variant annotator functions """
 #!pylint: disable=invalid-name
+##
+# @package util
 
 from GenomicsDBData.Util.utils import xstr, truncate, reverse, warning
 
@@ -39,8 +41,8 @@ class VariantAnnotator(object):
         - if no normalization is possible, keeps normalized alleles as
         default equal to ref & alt
 
-        @params snvDivMinux       return '-' for SNV deletion when True, otherwise return empty string
-        @returns                  a tuple containing the normalized alleles (ref, alt)
+        @param snvDivMinus       return '-' for SNV deletion when True, otherwise return empty string
+        @return                  a tuple containing the normalized alleles (ref, alt)
         """
 
         rLength = len(self.__ref)
@@ -85,7 +87,7 @@ class VariantAnnotator(object):
 
     def get_display_attributes(self, rsPosition = None):
         """! generate and return display alleles & dbSNP compatible start-end
-        @params rsPosition       dbSNP property RSPOS
+        @param rsPosition       dbSNP property RSPOS
         @returns                 dict containing display attributes
         """
 
