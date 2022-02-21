@@ -1,6 +1,7 @@
 """! @brief Annotated VDB Loader """
 #!pylint: disable=invalid-name
 ##
+# @package loaders
 # @file variant_loader.py
 #
 # @brief  Annotated VDB Loader
@@ -50,6 +51,7 @@ from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser
 
 from AnnotatedVDB.BinIndex.bin_index import BinIndex
 from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
+from AnnotatedVDB.Util.database import VariantRecord
 
 ALLOWABLE_COPY_FIELDS = ["chromosome", "record_primary_key", "position", 
                          "is_multi_allelic", "is_adsp_variant", "ref_snp_id", 
@@ -69,8 +71,6 @@ class VariantLoader(object):
     def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
         """! VariantLoader base class initializer
 
-            @param copySql             SQL for copy statement
-            @param chromosomeMap       chromosome map
             @param datasource          datasource description
             @param logFileName         full path to logging file
             @param verbose             flag for verbose output
@@ -100,6 +100,8 @@ class VariantLoader(object):
         self._copy_sql = None
         
         self._fail_at_variant = None
+        self._variant_validator = None
+        self._skip_duplicates = False
  
         self._initialize_counters()
         self.initialize_copy_buffer()
@@ -108,11 +110,35 @@ class VariantLoader(object):
     def close(self):
         self.close_copy_buffer()
         self.close_log()
-        
+        if self._variant_validator is not None:
+            self._variant_validator.close()
+    
         
     def _exit__(self, exc_type, exc_value, traceback):
         self.close()
         
+    
+    def initialize_variant_validator(self, gusConfigFile):
+        self._variant_validator=VariantRecord(gusConfigFile, self._verbose, self._debug)
+    
+    
+    def set_skip_duplicates(self, skipDuplicates, gusConfigFile=None):
+        self._skip_duplicates = skipDuplicates
+        if skipDuplicates:
+            self.initialize_variant_validator(gusConfigFile)
+            
+            
+    def is_duplicate(self, variantId, idType, chromosome=None):
+        return self._variant_validator.exists(variantId, idType, chromosome)
+    
+    
+    def skip_duplicates(self):
+        return self._skip_duplicates
+    
+    
+    def variant_validator(self):
+        return self._variant_validator()
+    
     
     def is_fail_at_variant(self):
         """! check if current variant is fail at variant
@@ -251,7 +277,7 @@ class VariantLoader(object):
     
     def _initialize_counters(self):
         """! initialize counters"""
-        self._counters = { 'line' : 0, 'variant': 0, 'skipped': 0}
+        self._counters = { 'line' : 0, 'variant': 0, 'skipped': 0, 'duplicates': 0}
             
                 
     def cursor(self):
@@ -261,7 +287,7 @@ class VariantLoader(object):
     
     def set_cursor(self, cursor):
         """! set database handle
-        @params  cursor              database cursor
+        @param  cursor              database cursor
         """
         self._cursor = cursor
             
@@ -349,8 +375,7 @@ class VariantLoader(object):
         
     def parse_result(self, result):
         """! parse & load single line from file 
-        @params result             the line from the result file
-        @params checkSkip          make checks to see if line should be skipped (after resume)
+        @param result             the line from the result file
         @returns copy string for db load 
         """
                 

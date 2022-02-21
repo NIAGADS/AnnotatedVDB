@@ -1,6 +1,7 @@
 """! @brief Annotated VDB Loader """
 #!pylint: disable=invalid-name
 ##
+# @package loaders
 # @file vep_variant_loader.py
 #
 # @brief  Annotated VDB Loader
@@ -43,6 +44,7 @@ from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 from AnnotatedVDB.Util.loaders import VariantLoader
+from AnnotatedVDB.Util.database import VARIANT_ID_TYPES
 
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
@@ -50,8 +52,6 @@ class VEPVariantLoader(VariantLoader):
     def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
         """! VEPVariantLoader base class initializer
 
-            @param copySql             SQL for copy statement
-            @param chromosomeMap       chromosome map
             @param datasource          datasource description
             @param logFileName         full path to logging file
             @param verbose             flag for verbose output
@@ -109,7 +109,7 @@ class VEPVariantLoader(VariantLoader):
     def __parse_vcf_frequencies(self, allele, vcfGMAFs):
         """! retrieve allele frequencies reported in INFO FREQ field
         @param allele          allele to match (not normalized)
-        @param vcfGMAF         global minor allele frequencies from the VCF FREQ info field
+        @param vcfGMAFs         global minor allele frequencies from the VCF FREQ info field
         @returns               dict of source:frequency for the allele
         """
         
@@ -150,9 +150,9 @@ class VEPVariantLoader(VariantLoader):
         
     def __parse_alt_alleles(self, vcfEntry, resultJson):
         """! iterate over alleles and calculate values to load
-             add to copy buffer
+            add to copy buffer
             @param vcfEntry             the VCF entry for the current variant
-            @param resultJSON           the VEP result / to be added to copyStr
+            @param resultJson           the VEP result / to be added to copyStr
         """
         # extract result frequencies
         if self._debug:
@@ -165,9 +165,16 @@ class VEPVariantLoader(VariantLoader):
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
+            
+            if not self.is_dbsnp() and self.skip_duplicates():
+                if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+                    self.increment_counter('duplicates')
+                    continue
+            
             normRef, normAlt = annotator.get_normalized_alleles()
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt, normRef))
+            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
             
             # NOTE: VEP uses left normalized alleles to indicate freq allele, with - for full deletions
             # so need to use normalized alleles to match freq allele / consequence allele
@@ -178,8 +185,6 @@ class VEPVariantLoader(VariantLoader):
             alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry.get_info('FREQ'), alt)
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
-
-            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)
 
             copyValues = ['chr' + xstr(variant.chromosome),
                         recordPK,
@@ -195,7 +200,7 @@ class VEPVariantLoader(VariantLoader):
                         xstr(resultJson),
                         xstr(self._alg_invocation_id)
                         ]           
-       
+            
             if self._debug:
                 self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
                 self.log(copyValues, prefix="DEBUG")
@@ -204,8 +209,7 @@ class VEPVariantLoader(VariantLoader):
     
     def parse_result(self, result):
         """! parse & load single line from file 
-        @params result             the VEP result in string form
-        @params checkSkip          make checks to see if line should be skipped (after resume)
+        @param result             the VEP result in string form
         @returns copy string for db load 
         """
         if self._debug:
@@ -228,7 +232,7 @@ class VEPVariantLoader(VariantLoader):
                 self._update_resume_status(entry.get('id'))
                 return None
             
-            # otherwise proceed with the parsing            
+            # otherwise proceed with the parsing       
             entry.update_chromosome(self._chromosome_map)
             
             # there are json formatting issues w/the input str
@@ -237,6 +241,11 @@ class VEPVariantLoader(VariantLoader):
             
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
+            
+            if self.is_dbsnp() and self.skip_duplicates():
+                if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', self._current_variant.chromosome):
+                    self.increment_counter('duplicates')
+                    return None
         
             # rank consequences
             self.__vep_parser.adsp_rank_and_sort_consequences()
