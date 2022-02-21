@@ -169,9 +169,10 @@ class VEPVariantLoader(VariantLoader):
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt, normRef))
             
-            # NOTE: VEP uses left normalized alleles to indicate freq allele
+            # NOTE: VEP uses left normalized alleles to indicate freq allele, with - for full deletions
             # so need to use normalized alleles to match freq allele / consequence allele
             # to the correct variant alt allele
+            normRef, normAlt = annotator.get_normalized_alleles(snvDivMinus=True)
             alleleFreq = None if frequencies is None \
                 else self.__get_allele_frequencies(normAlt, frequencies)    
             alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry.get_info('FREQ'), alt)

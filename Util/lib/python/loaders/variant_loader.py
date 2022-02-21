@@ -98,6 +98,8 @@ class VariantLoader(object):
         self._copy_buffer = None
         self._copy_fields = None
         self._copy_sql = None
+        
+        self._fail_at_variant = None
  
         self._initialize_counters()
         self.initialize_copy_buffer()
@@ -110,7 +112,27 @@ class VariantLoader(object):
         
     def _exit__(self, exc_type, exc_value, traceback):
         self.close()
+        
     
+    def is_fail_at_variant(self):
+        """! check if current variant is fail at variant
+            @returns                 True if match
+        """
+
+        return self._fail_at_variant == self._current_variant.id
+    
+    
+    def fail_at_variant(self):
+        """! @returns fail at variant """
+        return self._fail_at_variant
+    
+    
+    def set_fail_at_variant(self, variant):
+        """! for debugging problematic variants that fail on load
+            @param variant             id of variant that should be logged before exit
+        """
+        self._fail_at_variant = variant
+
 
     def set_chromosome_map(self, chrmMap):
         self._chromosome_map = chrmMap

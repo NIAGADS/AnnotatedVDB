@@ -35,7 +35,10 @@ class VcfEntryParser(object):
 
         # now unpack the info field and save as its own
         try:
-            info = dict(item.split('=',1) if '=' in item else [item, True] for item in result['info'].split(';'))
+            infoStr = result['info'].replace('\\x2c', ',') # \x escape causes JSON parsing issues
+            infoStr = infoStr.replace('\\x59', '/') # \x59 is a semi-colon, but b/c its a delimiter can't use
+            infoStr = infoStr.replace('#', ':') # b/c using pound sign as COPY delimiter
+            info = dict(item.split('=',1) if '=' in item else [item, True] for item in infoStr.split(';'))
         except Exception as err:
             warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
             raise err
