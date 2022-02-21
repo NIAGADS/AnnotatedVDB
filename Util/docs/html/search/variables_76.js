@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['variant_5fcolumns',['VARIANT_COLUMNS',['../namespacevariant__annotator.html#af21b9b4032672cce35ec299211a9555b',1,'variant_annotator']]]
+  ['variant_5fid_5ftypes',['VARIANT_ID_TYPES',['../namespacedatabase_1_1variant.html#aa0993f702926f065773071b37fcf8433',1,'database::variant']]]
 ];

@@ -90,6 +90,8 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 <div class="header">
   <div class="summary">
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#pri-methods">Private Member Functions</a> &#124;
+<a href="#pri-attribs">Private Attributes</a> &#124;
 <a href="classalgorithm__invocation_1_1AlgorithmInvocation-members.html">List of all members</a>  </div>
   <div class="headertitle">
 <div class="title">AlgorithmInvocation Class Reference</div>  </div>
@@ -108,12 +110,24 @@ Inheritance diagram for AlgorithmInvocation:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:ac775ee34451fdfa742b318538164070e"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#ac775ee34451fdfa742b318538164070e">__init__</a></td></tr>
 <tr class="separator:ac775ee34451fdfa742b318538164070e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ab65ead0c423d711dc6d3f23f350de04c"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#ab65ead0c423d711dc6d3f23f350de04c">insertAlgorithmInvocation</a></td></tr>
-<tr class="separator:ab65ead0c423d711dc6d3f23f350de04c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a986263d1811c08edd7bdce9120dcc2bd"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a986263d1811c08edd7bdce9120dcc2bd">insert_algorithm_invocation</a></td></tr>
+<tr class="separator:a986263d1811c08edd7bdce9120dcc2bd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a62ff3a1a16cc4894588efc5ec504de34"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a62ff3a1a16cc4894588efc5ec504de34">getAlgorithmInvocationId</a></td></tr>
 <tr class="separator:a62ff3a1a16cc4894588efc5ec504de34"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a9a957c03c6873d8a14c39f87c9b24f54"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a9a957c03c6873d8a14c39f87c9b24f54">close</a></td></tr>
 <tr class="separator:a9a957c03c6873d8a14c39f87c9b24f54"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pri-methods"></a>
+Private Member Functions</h2></td></tr>
+<tr class="memitem:a96df5b76bbe411f1c44cfbb2050ce35d"><td class="memItemLeft" align="right" valign="top">def&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a96df5b76bbe411f1c44cfbb2050ce35d">__get_db_handle</a></td></tr>
+<tr class="separator:a96df5b76bbe411f1c44cfbb2050ce35d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pri-attribs"></a>
+Private Attributes</h2></td></tr>
+<tr class="memitem:a4c57a283fdbb0dab96415dd5372ac833"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a4c57a283fdbb0dab96415dd5372ac833">_database</a></td></tr>
+<tr class="separator:a4c57a283fdbb0dab96415dd5372ac833"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9fda0833457ae566a3b2ee5a60bb2069"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classalgorithm__invocation_1_1AlgorithmInvocation.html#a9fda0833457ae566a3b2ee5a60bb2069">_algorithm_invocation_id</a></td></tr>
+<tr class="separator:a9fda0833457ae566a3b2ee5a60bb2069"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><pre class="fragment">transaction management for algorithm invocation </pre> </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
@@ -162,6 +176,40 @@ Public Member Functions</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
+<a class="anchor" id="a96df5b76bbe411f1c44cfbb2050ce35d"></a>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">def __get_db_handle </td>
+          <td>(</td>
+          <td class="paramtype">&#160;</td>
+          <td class="paramname"><em>self</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">&#160;</td>
+          <td class="paramname"><em>gusConfigFile</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">private</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<pre class="fragment">create database connection </pre> 
+</div>
+</div>
 <a class="anchor" id="a9a957c03c6873d8a14c39f87c9b24f54"></a>
 <div class="memitem">
 <div class="memproto">
@@ -194,12 +242,12 @@ Public Member Functions</h2></td></tr>
 <pre class="fragment">return algorithm invocation id </pre> 
 </div>
 </div>
-<a class="anchor" id="ab65ead0c423d711dc6d3f23f350de04c"></a>
+<a class="anchor" id="a986263d1811c08edd7bdce9120dcc2bd"></a>
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">def insertAlgorithmInvocation </td>
+          <td class="memname">def insert_algorithm_invocation </td>
           <td>(</td>
           <td class="paramtype">&#160;</td>
           <td class="paramname"><em>self</em>, </td>
@@ -230,6 +278,47 @@ Public Member Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <pre class="fragment">create the entry for the algorithm invocation </pre> 
+</div>
+</div>
+<h2 class="groupheader">Member Data Documentation</h2>
+<a class="anchor" id="a9fda0833457ae566a3b2ee5a60bb2069"></a>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">_algorithm_invocation_id</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">private</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a class="anchor" id="a4c57a283fdbb0dab96415dd5372ac833"></a>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">_database</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">private</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
 </div>
 </div>
 <hr/>The documentation for this class was generated from the following file:<ul>
