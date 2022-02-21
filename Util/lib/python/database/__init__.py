@@ -1,0 +1,1 @@
+from AnnotatedVDB.Util.database.variant import VariantRecord, VARIANT_ID_TYPES
