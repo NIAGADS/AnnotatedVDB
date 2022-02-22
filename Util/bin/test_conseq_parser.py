@@ -5,8 +5,6 @@ import argparse
 
 
 def run():
-    fileName = args.fileName
-
     print("#### Test ConseqGroup Enum -- get and print all terms")
     print(ConseqGroup.get_all_terms())
     print()
@@ -14,7 +12,7 @@ def run():
     print("#### Test load and rank consequence groups")
     print("Debug mode? " + str(args.debug))
     print("Verbose mode?" + str(args.verbose))
-    cparser = ConsequenceParser(fileName, rankOnLoad=True, verbose=args.verbose, debug=args.debug)
+    cparser = ConsequenceParser(args.fileName, rankOnLoad=True, verbose=args.verbose, debug=args.debug)
     print()
     
     print("#### Test print ranked, known consequences -- consequences only")
