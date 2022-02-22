@@ -1,17 +1,37 @@
-'''
-utils for parsing VCF files
-'''
-#pylint: disable=line-too-long,invalid-name
+"""! @brief VCF Entry Parser"""
+
 ##
 # @package parsers
+# @file vcf_parser.py
+#
+# @brief  VCF Entry Parser
+# 
+# @section vcf_parser Description
+# utils for parsing VCF entries (a line in a VCF file)
+#
+# @section todo_vcf_parser TODO
+#
+# - None
+#
+# @section libraries_vcf_parser Libraries/Modules
+# - types: SimpleNamespace -- allows treatment of a dict as a namespace to access with dot notation
+# - [GenomicsDBData.Util.utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/utils.py)
+#   + provides variety of wrappers for standard file, string, list, and logging operations
+# - [GenomicsDBData.Util.list_utils](https://github.com/NIAGADS/GenomicsDBData/blob/master/Util/lib/python/list_utils.py)
+#
+# @section author_vcf_parser Author(s)
+# - Created by Emily Greenfest-Allen (fossilfriend) 2019
+# - Modified to remove consequence ranking to the ConsequenceParser class by EGA 2022
+
+# pylint: disable=line-too-long,invalid-name,no-self-use
 
 from types import SimpleNamespace
 
-from GenomicsDBData.Util.utils import xstr, die, warning, print_dict, print_args
+from GenomicsDBData.Util.utils import xstr, warning, convert_str2numeric_values
 from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
-    '''! utils for parse a single line of a vcf file '''
+    """! utils for parse a single line of a vcf file """
 
     def __init__(self, entry, verbose=False, debug=False):
         """! VcfEntryParser base class initializer
@@ -21,15 +41,19 @@ class VcfEntryParser(object):
         @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
         """
         
-        self.__entry = None if entry is None else self.__parse_entry(entry)
+        self.__entry = None if entry is None else self.parse_entry(entry)
         
 
-    def __parse_entry(self, inputStr):
-        ''' processes the VCF input string and return map
-        # VCF
-        # CHROM POS     ID        REF ALT    QUAL FILTER INFO
-        #X\t605409\trs780063150\tC\tA\t.\t.\tRS=780063150;RSPOS=605409;dbSNPBuildID=144;SSR=0;SAO=0;VP=0x05000088000d000026000100;GENEINFO=SHOX:6473;WGT=1;VC=SNV;U3;INT;CFL;ASP;KGPhase3;CAF=0.9996,0.0003994;COMMON=0;TOPMED=0.99999203618756371,0.00000796381243628
-        '''
+    def parse_entry(self, inputStr):
+        """! processes the VCF input string and return map
+        - Example VCF entry
+        > CHROM POS     ID        REF ALT    QUAL FILTER INFO
+        > X\t605409\trs780063150\tC\tA\t.\t.\tRS=780063150;RSPOS=605409;dbSNPBuildID=144;SSR=0;SAO=0;VP=0x05000088000d000026000100;GENEINFO=SHOX:6473;WGT=1;VC=SNV;U3;INT;CFL;ASP;KGPhase3;CAF=0.9996,0.0003994;COMMON=0;TOPMED=0.99999203618756371,0.00000796381243628
+        
+        @param inputStr             the line from the VCF file     
+        @returns the string parsed into a dict
+        @exception  raises error when run into problems parsing the INFO field
+        """
 
         fields = qw('chrom pos id ref alt qual filter info')
         values = inputStr.split('\t')
@@ -51,10 +75,10 @@ class VcfEntryParser(object):
 
 
     def update_chromosome(self, chrmMap):
-        '''! update chromosome in entry based upon provided mapping
+        """! update chromosome in entry based upon provided mapping
         @param chrmMap          ChromosomeMap object mapping sequenceID => chrm number
         @exception TypeError if entry is not set / AttributeError if chromosome number not in the map
-        '''
+        """
         self.__verify_entry()
         if chrmMap is not None:
             self.__entry['chrom'] = chrmMap.get(self.__entry['chrom'])
@@ -90,9 +114,9 @@ class VcfEntryParser(object):
     
     
     def get_refsnp(self):
-        ''' extract refsnp id from vcf entry dictionary
-        (output from parse_vcf_entry)
-        '''
+        """! extract refsnp id from vcf entry dictionary
+        @returns ref_snp_id 
+        """
         self.__verify_entry()
 
         if 'rs' in self.__entry['id']:
@@ -104,18 +128,19 @@ class VcfEntryParser(object):
 
 
     def get_entry(self):
-        ''' return the entry '''
+        """! return the parsed entry 
+        @returns the parsed entry """
         return self.__entry
 
     
     def get(self, key):
-        ''' get the entry value associated with the key '''
+        """! get the entry value associated with the key """
         self.__verify_entry()
         return self.__entry[key]
 
 
     def get_info(self, key):
-        ''' get the INFO value associated with the key '''
+        """! get the INFO value associated with the key """
         self.__verify_entry()
         if key in self.__entry['info']:
             return self.__entry['info'][key]
@@ -124,9 +149,13 @@ class VcfEntryParser(object):
         
 
     def infer_variant_end_location(self, alt, normRef):
-        ''' infer span of indels/deletions for a 
+        """! infer span of indels/deletions for a 
         specific alternative allele, modeled off 
-        GUS Perl VariantAnnotator, see for more info'''
+        GUS Perl VariantAnnotator & dbSNP normalization conventions
+        @param alt               alternative allele
+        @param normAlt           left normalized reference allele
+        @returns                 end location
+        """
         self.__verify_entry()
         ref = self.get('ref')
 
@@ -163,44 +192,9 @@ class VcfEntryParser(object):
 
 
     def __verify_entry(self):
-        ''' check that entry is set '''
+        """! check that entry is set 
+        @returns boolean if entry has a value 
+        @exception   failed assertion """
         assert self.__entry is not None, \
-          "DEBUG - must set value of _entry in the VCF parser before attempting to access"
+            "DEBUG - must set value of _entry in the VCF parser before attempting to access"
 
-
-
-# --------------
-# helpers
-
-
-def is_integer(value):
-    if isinstance(value, (float, bool)):
-        return False
-    try:
-        int(value)
-        return True
-    except ValueError:
-        return False
-
-
-def is_float(value):
-    try:
-        int(value)
-        return True
-    except ValueError:
-        return False
-
-
-def convert_str2numeric_values(cdict):
-    '''
-    converts numeric values in dictionary stored as strings 
-    to numeric
-    '''
-
-    for key, value in cdict.items():
-        if is_float(value): # must check float first b/c integers are a subset
-            cdict[key] = float(value)
-        if is_integer(value):
-            cdict[key] = int(value)
-
-    return cdict
