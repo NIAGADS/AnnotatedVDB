@@ -162,7 +162,8 @@ def load_annotation(fileName, logFilePrefix):
                 message += " -- rolling back"
             message += "; up to = " + loader.get_current_variant_id()
             loader.log(message, prefix=messagePrefix)
-        
+            loader.log("DONE", prefix="INFO")
+            
             # summarize new consequences
             loader.log(("Counsequences added during load:", 
                         loader.vep_parser().get_added_conseq_summary()), prefix="INFO")
