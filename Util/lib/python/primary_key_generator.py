@@ -36,6 +36,7 @@ class VariantPKGenerator(object):
     Keys are generated using the following specifications:
     - [NCBI dbSNP SPDI or Sequence:Position:Deletion:Insertion](https://www.ncbi.nlm.nih.gov/variation/notation/)
     - [GA4GH VRS Computed Sequence Representations](https://vrs.ga4gh.org/en/stable/impl-guide/computed_identifiers.html#computed-identifiers)
+      + this has a dependency on the [BioCommons SeqRepo](https://github.com/biocommons/biocommons.seqrepo)
 
     According to the following rules:
     - for SNV's and short INDEX (total length alleles <= maxSequenceLength):
