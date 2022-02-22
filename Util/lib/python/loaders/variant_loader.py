@@ -1,5 +1,7 @@
 """! @brief Annotated VDB Loader """
+
 #!pylint: disable=invalid-name
+
 ##
 # @package loaders
 # @file variant_loader.py
@@ -87,7 +89,9 @@ class VariantLoader(object):
         self._alg_invocation_id = None
         self._pk_generator = None
         self._bin_indexer = None
-        self._cursor = None # database cursor
+        
+         ## database cursor
+        self._cursor = None
         
         self._counters = {}
         self._chromosome_map = None
@@ -102,7 +106,7 @@ class VariantLoader(object):
         self._fail_at_variant = None
         self._variant_validator = None
         self._skip_duplicates = False
- 
+
         self._initialize_counters()
         self.initialize_copy_buffer()
         
