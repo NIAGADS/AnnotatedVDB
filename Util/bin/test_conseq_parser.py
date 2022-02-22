@@ -35,7 +35,7 @@ def run():
         print(str(err))
     print()
     
-    print("#### Fail on missing? False")
+    print("#### Fail on missing? False (i.e., add to consequence list and rerank)")
     rank = cparser.find_matching_consequence(newConseqCombo)
     print("Match rank: " + str(rank))
     print()
