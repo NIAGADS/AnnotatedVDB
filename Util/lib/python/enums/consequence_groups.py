@@ -33,7 +33,7 @@ class ConseqGroup(Enum):
     - terms added by EGA:
       + regulatory_region_ablation 02/14/2022
       + TFBS_amplification 02/15/2022
-
+      + regulatory_region_amplification 02/22/2022
     """
     
     __order__ = 'HIGH_IMPACT NMD NON_CODING_TRANSCRIPT MODIFIER'
@@ -54,7 +54,7 @@ class ConseqGroup(Enum):
     MODIFIER = ['intron_variant', 'mature_miRNA_variant', 'non_coding_transcript_variant',
                 'non_coding_transcript_exon_variant', 'upstream_gene_variant',
                 'downstream_gene_variant', 'TF_binding_site_variant', 'TFBS_ablation', 'TFBS_amplification',
-                'TF_binding_site_variant', 'regulatory_region_variant', 'intergenic_variant'] # GRP 3
+                'TF_binding_site_variant', 'regulatory_region_amplification', 'regulatory_region_variant', 'intergenic_variant'] # GRP 3
 
 
     @classmethod

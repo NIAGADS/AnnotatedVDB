@@ -39,8 +39,7 @@ class VcfEntryParser(object):
         @param verbose     flag for verbose output
         @param debug       flag for debug output
         @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
-        """
-        
+        """   
         self.__entry = None if entry is None else self.parse_entry(entry)
         
 
@@ -49,15 +48,15 @@ class VcfEntryParser(object):
         
         - Example VCF entry
         
-        > CHROM POS     ID        REF ALT    QUAL FILTER INFO
-        
-        > `X\t605409\trs780063150\tC\tA\t.\t.\tRS=780063150;RSPOS=605409;dbSNPBuildID=144;SSR=0;SAO=0;VP=0x05000088000d000026000100;GENEINFO=SHOX:6473;WGT=1;VC=SNV;U3;INT;CFL;ASP;KGPhase3;CAF=0.9996,0.0003994;COMMON=0;TOPMED=0.99999203618756371,0.00000796381243628`
+        ~~~~~~~~~~~~~{.txt}
+        CHROM POS     ID        REF ALT    QUAL FILTER INFO
+        `X\t605409\trs780063150\tC\tA\t.\t.\tRS=780063150;RSPOS=605409;dbSNPBuildID=144;SSR=0;SAO=0;VP=0x05000088000d000026000100;GENEINFO=SHOX:6473;WGT=1;VC=SNV;U3;INT;CFL;ASP;KGPhase3;CAF=0.9996,0.0003994;COMMON=0;TOPMED=0.99999203618756371,0.00000796381243628`
+        ~~~~~~~~~~~~~
         
         @param inputStr             the line from the VCF file     
-        @returns the string parsed into a dict
-        @exception  raises error when run into problems parsing the INFO field
+        @returns                    the string parsed into a dict
+        @exception                  raises error when run into problems parsing the INFO field
         """
-
         fields = qw('chrom pos id ref alt qual filter info')
         values = inputStr.split('\t')
         result = convert_str2numeric_values(dict(zip(fields, values)))
