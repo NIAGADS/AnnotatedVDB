@@ -1,0 +1,6 @@
+var searchData=
+[
+  ['todict',['toDict',['../classenums_1_1consequence__groups_1_1ConseqGroup.html#a9c8ff7a975187f5915406b153124e6a0',1,'enums::consequence_groups::ConseqGroup']]],
+  ['translate_5fvrs',['translate_vrs',['../classprimary__key__generator_1_1VariantPKGenerator.html#af07fc78df9b6fb8dffea7283e8646d5a',1,'primary_key_generator::VariantPKGenerator']]],
+  ['truncate_5fallele',['truncate_allele',['../namespacevariant__annotator.html#a1416479d66c101fc6cb37cf4b3a9dce2',1,'variant_annotator']]]
+];

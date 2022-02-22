@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
-Loads AnnotatedVDB from JSON output from running VEP on a non-dbSNP VCF
-NOTE: assumes variants were not mapped to a refSNP
-NOTE: to skip check against DB to avoid duplicates and to speed up (NOT RECOMMENDED)
-use the --skipVerification flag
+Loads AnnotatedVDB from JSON output from running VEP on dbSNP
+Loads each chromosome in parallel
 """
+
 from __future__ import print_function
 
 import argparse
@@ -13,280 +12,267 @@ import gzip
 import mmap
 import json
 import sys
-import io
-import copy
+import csv
+
 from datetime import datetime
-
 from os import path
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import warning, xstr, die, qw, execute_cmd, xstrN, truncate
-from GenomicsDBData.Util.postgres_dbi import Database
+from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die
+from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-from AnnotatedVDB.BinIndex.bin_index import BinIndex
-from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
-from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
-from AnnotatedVDB.Util.vep_parser import VepJsonParser, CONSEQUENCE_TYPES
-
-def duplicate(metaseqId, dcursor):
-    ''' test against db '''
-    if args.skipVerification:
-        return False
-    sql = "SELECT metaseq_id FROM  Variant WHERE LEFT(metaseq_id, 50) = LEFT(%s, 50)"
-    sql = sql + " AND chromosome = 'chr' || split_part(%s,':',1)"
-    sql = sql + " AND metaseq_id = %s"
-
-    dcursor.execute(sql, (metaseqId, metaseqId, metaseqId))
-    for record in dcursor:
-        return True # if there is a hit, there is a duplicate
-    return False # if not, no duplicate
+from AnnotatedVDB.Util.loaders import VEPVariantLoader 
+from AnnotatedVDB.Util.parsers import ChromosomeMap
+from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
 
-def get_frequencies():
-    ''' extract frequencies'''
+def initialize_loader(logFilePrefix):
+    """! initialize loader """
 
-    frequencies = vepParser.get_frequencies()
-    if frequencies is None:
-        return None
-    return frequencies['values']
+    lfn = xstr(logFilePrefix)
+    if args.resumeAfter:
+        lfn += '_resume_' + args.resumeAfter 
+    if args.failAt:
+        lfn += '_fail_' + args.failAt.replace(':', '-')
+    lfn += '.log'
+    warning("Logging to", lfn)
+    
+    try:
+        loader = VEPVariantLoader('dbSNP', logFileName=lfn, verbose=args.verbose, debug=args.debug)
+        
+        if args.verbose:
+            loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
+
+        loader.set_algorithm_invocation('load_vep_result', xstr(logFilePrefix) + '|' + print_args(args, False))
+        loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
+        
+        loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
+        loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
+        loader.initialize_bin_indexer(args.gusConfigFile)
+        loader.initialize_copy_sql() # use default copy fields
+        loader.set_chromosome_map(chrmMap)
+        
+        if args.skipDuplicates:
+            loader.set_skip_duplicates(True, args.gusConfigFile) # initialize validator db connection
+        
+        if args.failAt:
+            loader.set_fail_at_variant(args.failAt)
+            loader.log("Fail at variant: " + loader.fail_at_variant(), prefix="INFO")
+        
+    except Exception as err:
+        warning("ERROR", "Problem initializing Loader")
+        raise(err)
+        
+    return loader
 
 
-def json2str(value):
-    ''' convert JSON to str; accounting for None values '''
-    if value is None:
-        return 'NULL'
-    else:
-        return json.dumps(value)
+def load_annotation(fileName, logFilePrefix):
+    """! parse over a JSON file, extract position, frequencies,
+    ids, and ADSP-ranked most severe consequence; bulk load using COPY """
+ 
+    loader = initialize_loader(logFilePrefix)
+    loader.log('Parsing ' + fileName, prefix="INFO")
+    
+    resume = args.resumeAfter is None # false if need to skip lines
+    if not resume:
+        loader.log(("--resumeAfter flag specified; Finding skip until point", args.resumeAfter), prefix="INFO")
+        loader.set_resume_after_variant(args.resumeAfter)
 
-
-def load_annotation():
-    ''' parse over a JSON file, extract position, frequencies,
-    ids, and ADSP-ranked most severe consequence; bulk load using COPY '''
-
-    fname = args.inputFile
-    lineCount = 0
-    variantCount = 0
-    skipCount = 0
-
-    warning("Parsing variants from:", fname) # should print to plugin log
-    with database.cursor() as cursor, database.cursor("RealDictCursor") as dcursor:
-        copyObj = io.StringIO()
-        with open(fname, 'r') as fh:
-            with open(args.logFile, 'w') as lfh:
-                warning("Parsing variants from:", fname, file=lfh, flush=True)
-                for line in fh:
-                    lineCount = lineCount + 1
-                    vepResult = json.loads(line.rstrip())
-
-                    vepParser.set_annotation(copy.deepcopy(vepResult))
-                    vepInputStr = vepParser.get('input')
-                    entry = VcfEntryParser(vepInputStr)
-
-                    # there may be json formatting issues w/the input str
-                    # so replace w/the parsed entry; which is now a dict
-                    vepResult['input'] = entry.get_entry()
-
-                    if lineCount == 1 or variantCount % 5000 == 0:
-                        warning('Processing new copy object', file=lfh, flush=True)
+    testComplete = False # flag if test is complete
+    try: 
+        database = Database(args.gusConfigFile)
+        database.connect()
+        with open(fileName, 'r') as fhandle, database.cursor() as cursor:
+            loader.set_cursor(cursor)
+            mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
+            with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
+                lineCount = 0
+                for line in gfh:
+                    if (lineCount == 0 and not loader.resume_load()) \
+                        or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
+                        if args.debug:
+                            loader.log('Processing new copy object', prefix="DEBUG")
                         tstart = datetime.now()
-
-                    refAllele = entry.get('ref')
-                    altAllele = entry.get('alt')  # assumes no multialleic variants
-
-                    if refAllele == '0': # happens sometimes
-                        refAllele = '?'
-                    if altAllele == '0':
-                        altAllele = '?'
-
-                    # truncatedRef = truncate(refAllele, 20)
-                    # truncatedAlt = truncate(altAllele, 20)
-                  
-                    chrom = xstr(entry.get('chrom'))
-                    if chrom == 'MT':
-                        chrom = 'M'
-
-                    position = int(entry.get('pos'))
-
-                    try:
-                        # metaseqId = ':'.join((chrom, xstr(position), truncatedRef, truncatedAlt))
-                        metaseqId = ':'.join((chrom, xstr(position), refAllele, altAllele))
-
-                        if duplicate(metaseqId, dcursor): 
-                            warning("SKIPPING:",metaseqId, "- already loaded.", file=lfh, flush=True)
-                            continue
-
-                        vepParser.set('ref_allele', refAllele)
-                        vepParser.set('alt_allele', altAllele)
-                     
-                        frequencies = get_frequencies()
-                        vepParser.adsp_rank_and_sort_consequences()
-
-                        # for each allele
-                        variantCount = variantCount + 1
-
-                        positionEnd = entry.infer_variant_end_location(altAllele)
-                        binIndex = indexer.find_bin_index(chrom, position, positionEnd)
-
-                        # NOTE: VEP uses normalized alleles to indicate variant_allele
-                        nRef, nAlt = entry.normalize_alleles(refAllele, altAllele, snvDivMinus=True)
-                        alleleFreq = None if frequencies is None \
-                          else get_allele_frequencies(nAlt, frequencies)
-
-                        msConseq = get_most_severe_consequence(nAlt)
-                        valueStr = '#'.join((
-                          'chr' + xstr(chrom),
-                          xstr(position),
-                          binIndex,
-                          metaseqId,
-                          json2str(alleleFreq),
-                          json2str(msConseq),
-                          json2str(get_adsp_ranked_allele_consequences(nAlt)),
-                          json.dumps(vepResult),
-                          algInvocId
-                          ))
-
-
-                        copyObj.write(valueStr + '\n')
-
-                        if variantCount % 5000 == 0:
-                            warning("FOUND", variantCount, " new variants", file=lfh, flush=True)
-                            tendw = datetime.now()
-                            warning('Copy object prepared in ' + str(tendw - tstart) + '; ' +
-                                    str(copyObj.tell()) + ' bytes; transfering to database',
-                                    file=lfh, flush=True)
-                            copyObj.seek(0)
-                            cursor.copy_from(copyObj, 'variant', sep='#', null="NULL",
-                                             columns=VARIANT_COLUMNS)
-
-                            message = '{:,}'.format(variantCount)
-                            if args.commit:
-                                database.commit()
-                                message = "COMMITTED " + message
-
-                            else:
-                                database.rollback()
-                                message = "PARSED " + message + " -- rolling back"
-
-
-                            warning(message, "; up to = ", metaseqId, file=lfh, flush=True)
-
-                            tend = datetime.now()
-                            warning('Database copy time: ' + str(tend - tendw), file=lfh, flush=True)
-                            warning('        Total time: ' + str(tend - tstart), file=lfh, flush=True)
-
-                            copyObj = io.StringIO() # reset io string
-
-                    except Exception:
-                        warning("ERROR parsing variant on line", line, ' - ', metaseqId,
-                                file=lfh, flush=True)
-                        print("FAIL", file=sys.stdout)
-                        raise
-
-                # final commit / leftovers
-                copyObj.seek(0)
-                cursor.copy_from(copyObj, 'variant', sep='#', null="NULL", columns=VARIANT_COLUMNS)
-                message = '{:,}'.format(variantCount)
-
-                if args.commit:
-                    database.commit()
-                    message = "DONE - COMMITTED " + message
-                else:
-                    database.rollback()
-                    message = "DONE - PARSED " + message + " -- rolling back"
+                            
+                    loader.parse_result(line.rstrip())
+                    lineCount += 1
+                        
+                    if not loader.resume_load():
+                        if lineCount % args.logAfter == 0:
+                            loader.log(('{:,}'.format(lineCount), "lines"), 
+                                        prefix="SKIPPED")
+                        continue
+                        
+                    if loader.resume_load() != resume: # then you are at the resume cutoff
+                        resume = True
+                        loader.log(('{:,}'.format(lineCount), "lines"), 
+                                    prefix="SKIPPED")
+                        continue
                     
-                warning(message, file=lfh, flush=True)
+                    if lineCount % args.logAfter == 0 \
+                        and lineCount % args.commitAfter != 0:
+                        loader.log((lineCount, "lines (", 
+                                    loader.get_count('variant'), " variants)"), 
+                                    prefix="PARSED")
+
+                    if lineCount % args.commitAfter == 0:
+                        if args.debug:
+                            tendw = datetime.now()
+                            message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
+                                str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
+                            loader.log(message, prefix="DEBUG") 
+                        
+                        loader.load_variants()
+
+                        message = '{:,}'.format(loader.get_count('variant')) + " variants"
+                        messagePrefix = "COMMITTED"
+                        if args.commit:
+                            database.commit()
+                        else:
+                            database.rollback()
+                            messagePrefix = "PARSED"
+                            message += " -- rolling back"
+
+                        if lineCount % args.logAfter == 0:
+                            message += "; up to = " + loader.get_current_variant_id()
+                            loader.log(message, prefix=messagePrefix)
+
+                            if args.debug:
+                                tend = datetime.now()
+                                loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
+                                loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
+
+                        if args.test:
+                            break
+
+            # ============== end with gzip.GzipFile ===================
+            
+            # commit anything left in the copy buffer
+            loader.load_variants();
+
+            message = '{:,}'.format(loader.get_count('variant')) + " variants"
+            messagePrefix = "COMMITTED"
+            if args.commit:
+                database.commit()
+            else:
+                database.rollback()
+                messagePrefix = "PARSED"
+                message += " -- rolling back"
+            message += "; up to = " + loader.get_current_variant_id()
+            loader.log(message, prefix=messagePrefix)
+        
+            # summarize new consequences
+            loader.log(("Counsequences added during load:", 
+                        loader.vep_parser().get_added_conseq_summary()), prefix="INFO")
+            
+            if args.test:
+                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
+                
+        # ============== end with open, cursor ===================
+        
+    except DatabaseError as err:
+        loader.log("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
+            + loader.get_current_variant_id(), prefix="ERROR")
+        raise(err)
+    except IOError as err:
+        raise(err)
+    except Exception as err:
+        loader.log("Problem parsing variant: " + loader.get_current_variant_id(), prefix="ERROR")
+        loader.log((lineCount, ":", print_dict(json.loads(line))), prefix="LINE")
+        loader.log(str(err), prefix="ERROR")
+        raise(err)
+    finally:
+        mappedFile.close()
+        database.close()
+        loader.close()
 
 
+def validate_args():
+    """! validate the parameters, print warnings, and update some values as necessary """
+    if args.failAt:
+        warning("--failAt option provided / running in NON-COMMIT mode")
+        args.commit = False
 
-def get_most_severe_consequence(allele):
-    ''' retrieve most severe consequence from the VEP JSON Parser,
-    for the specified allele; returns None if no consequences are found
-    return first hit among transcript, then regulatory feature, then intergenic
-    consequences
-    '''
+    if not args.logAfter:
+        args.logAfter = args.commitAfter
 
-    for ct in CONSEQUENCE_TYPES:
-        msConseq = get_allele_consequences(allele, vepParser.get(ct + '_consequences'))
-        if msConseq is not None:
-            return msConseq[0]
+    if args.fileName and args.chr:
+        die("Both --fileName and --chr supplied, please specify only one, see --usage")
 
-    return None
-
-
-def get_adsp_ranked_allele_consequences(allele):
-    ''' get dict of all ADSP ranked allele consequences '''
-    adspConseq = {}
-    for ctype in CONSEQUENCE_TYPES:
-        ctypeKey = ctype + '_consequences'
-        cq = get_allele_consequences(allele, vepParser.get(ctypeKey))
-        if cq is not None:
-            adspConseq[ctypeKey] = cq
-
-    return adspConseq
-
-
-def get_allele_consequences(allele, conseq):
-    ''' check to see if conseq dict contains values for the specified allele,
-    if so return first value associated w/the allele as the most
-    serious; assumes ADSP ranking and re-sort has occurred '''
-
-    if conseq is None:
-        return None
-
-    if allele in conseq:
-        return conseq[allele]
-
-    return None
-
-
-def get_allele_frequencies(allele, frequencies):
-    ''' given an allele and frequency dict,
-    retrieve and return allele-specific frequencies '''
-
-    if frequencies is None:
-        return None
-
-    if 'values' in frequencies:
-        if allele in frequencies['values']:
-            return frequencies['values'][allele]
-
-    if allele in frequencies:
-        return frequencies[allele]
-
-    return None
-
+    if not args.fileName:
+        if not args.chr:
+            warning("Neither --fileName of --chr arguments supplied, assuming parallel load of all chromosomes")
+            args.chr = 'all'
+        else:        
+            if not args.dir:
+                die("Loading by chromosome, please supply path to directory containing the VEP results")
+            if not args.extension:
+                die("Loading by chromosome, please provide file extension. Assume file names are like chr1.extension / TODO: pattern matching")
+            
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='load AnnotatedDB from  JSON output of VEP against a non-dbSNP VCF; assumes no multiallelic variants')
-    parser.add_argument('-i', '--inputFile',
-                        help="full path to file containing VEP results", required=True)
-    parser.add_argument('--logFile', required=True)
+    parser = argparse.ArgumentParser(allow_abbrev=False, # otherwise it can substitute --chr for --chromosomeMap
+                                    description='load AnnotatedDB from JSON output of VEP against dbSNP, specify either a file or one or more chromosomes')
+    parser.add_argument('-d', '--dir',
+                        help="directory containing VEP results / only necessary for parallel load", required=True)
+    parser.add_argument('-e', '--extension', 
+                        help="file extension (e.g., json.gz) / required for parallel load")
+    parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
+    parser.add_argument('-s', '--seqrepoProxyPath', required=True,
+                        help="full path to local SeqRepo file repository")
+    parser.add_argument('-m', '--chromosomeMap', required=False,
+                        help="chromosome map")
     parser.add_argument('-r', '--rankingFile', required=True,
                         help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
     parser.add_argument('--gusConfigFile',
-                        help="full path to gus config file, else assumes $GUS_HOME/config/gus.config")
-    parser.add_argument('--skipVerification', help="skip check against DB (for avoiding duplications")
+                        '--full path to gus config file, else assumes $GUS_HOME/config/gus.config')
+    parser.add_argument('--test', action='store_true',
+                        help="load 'commitAfter' rows as test")
+    parser.add_argument('--resumeAfter',
+                        help="refSnpId after which to resume load (log lists lasts committed refSNP)")
+    parser.add_argument('-c', '--chr', 
+                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
+    parser.add_argument('--fileName',
+                        help="full path of file to load, if --dir option is provided, will be ignored")
+    parser.add_argument('--commitAfter', type=int, default=500,
+                        help="commit after specified inserts")
+    parser.add_argument('--maxWorkers', default=10, type=int)
+    parser.add_argument('--logAfter', type=int,
+                        help="number of inserts to log after completion; will work best if factor/multiple of commitAfter")
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--debug',  action='store_true',
+                        help="log database copy time / may print development debug statements")
+    parser.add_argument('--failAt', 
+                        help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
+    parser.add_argument('--skipDuplicates',
+                        help="check each variant against the database, load non-duplicates only -- time consuming")
     args = parser.parse_args()
 
+    validate_args()
 
-    VARIANT_COLUMNS = qw('chromosome location bin_index metaseq_id allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
+    chrmMap = ChromosomeMap(args.chromosomeMap) if args.chromosomeMap else None
 
-    algInvocation = AlgorithmInvocation('load_vep_result.py', json.dumps(vars(args)), args.commit, args.gusConfigFile)
-    algInvocId = xstr(algInvocation.getAlgorithmInvocationId())
-    algInvocation.close()
+    if args.fileName:
+        load_annotation(args.fileName, args.fileName.split('.')[0])
+        
+    else:
+        chrList = args.chr.split(',') if not args.chr.startswith('all') \
+            else [c.value for c in Human]
 
-    warning("Algorithm Invocation ID", algInvocId)
-
-    vepParser = VepJsonParser(args.rankingFile, verbose=True)
-
-    indexer = BinIndex(args.gusConfigFile, verbose=False)
-
-    database = Database(args.gusConfigFile)
-    database.connect()
-
-    load_annotation()
-
-    database.close()
-    indexer.close()
-    print(algInvocId, file=sys.stdout)
+        numChrs = len(chrList)
+        with ProcessPoolExecutor(args.maxWorkers) as executor:
+            if numChrs > 1:
+                for c in chrList:
+                    if args.chr == 'allNoM' and c == 'M':
+                        continue 
+                    warning("Create and start thread for chromosome:", xstr(c))
+                    inputFile = path.join(args.dir, 
+                        'chr' + xstr(c) + "." + args.extension)
+                    executor.submit(load_annotation, fileName=inputFile, logFilePrefix='chr' + xstr(c))
+            else: # debugs better w/out thread overhead, so single file -- no threading
+                inputFile = path.join(args.dir, 
+                        'chr' + xstr(chrList[0]) + "." + args.extension)
+                load_annotation(inputFile, 'chr' + xstr(chrList[0]))
