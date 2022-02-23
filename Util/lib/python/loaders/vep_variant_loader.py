@@ -240,6 +240,8 @@ class VEPVariantLoader(VariantLoader):
             self.log(str(err), prefix="ERROR")
             raise err
         
+        newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
+        
         try:
             self.increment_counter('line')
             resultJson = json.loads(result)
@@ -256,7 +258,7 @@ class VEPVariantLoader(VariantLoader):
             
             # there are json formatting issues w/the input str
             # so replace w/the parsed entry; which is now a dict
-            self._vep_parser.set('input', entry.get_entry())
+            self.__vep_parser.set('input', entry.get_entry())
             
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
@@ -268,6 +270,13 @@ class VEPVariantLoader(VariantLoader):
         
             # rank consequences
             self.__vep_parser.adsp_rank_and_sort_consequences()
+            
+            # log any new consequences
+            if self.__vep_parser.get_consequence_parser().get_new_conseq_count() > newConseqCount:
+                newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
+                self.log(("New consequence added for", self._current_variant.id, "-",
+                    self.__vep_parser.get_consequence_parser().get_added_consequences(mostRecent=True)),
+                    prefix="WARNING")
     
             # iterate over alleles
             self.__parse_alt_alleles(entry)
