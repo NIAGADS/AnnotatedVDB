@@ -41,7 +41,7 @@ from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, dee
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser
+from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser, CONSEQUENCE_TYPES
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 from AnnotatedVDB.Util.loaders import VariantLoader
 from AnnotatedVDB.Util.database import VARIANT_ID_TYPES
@@ -104,7 +104,21 @@ class VEPVariantLoader(VariantLoader):
             return frequencies[allele]
 
         return None
-        
+    
+    
+    def __clean_result(self):
+        """! remove attributes from VEP result that have already been extract
+        to reduce loading overhead 
+            @returns a cleaned JSON result
+        """
+        result = self.__vep_parser.get_annotation(deepCopy=True)
+        result.pop('colocated_variants', None) # allele frequencies
+        for ctype in CONSEQUENCE_TYPES:
+            ctypeKey = ctype + '_consequences'
+            result.pop(ctypeKey, None)
+            
+        return result
+    
     
     def __parse_vcf_frequencies(self, allele, vcfGMAFs):
         """! retrieve allele frequencies reported in INFO FREQ field
@@ -148,11 +162,10 @@ class VEPVariantLoader(VariantLoader):
         return deep_update(alleleFreqs, alleleGMAFs)
     
         
-    def __parse_alt_alleles(self, vcfEntry, resultJson):
+    def __parse_alt_alleles(self, vcfEntry):
         """! iterate over alleles and calculate values to load
             add to copy buffer
             @param vcfEntry             the VCF entry for the current variant
-            @param resultJson           the VEP result / to be added to copyStr
         """
         # extract result frequencies
         if self._debug:
@@ -161,6 +174,12 @@ class VEPVariantLoader(VariantLoader):
         frequencies = self.__get_result_frequencies()
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
+        
+        # clean result -- remove elements in the result JSON that are extracted 
+        # and saved to other fields
+        # does a deep copy so won't affect allele-specific extractions, so do just once
+        # as this will remove the info for all alleles (frequencies, consequences)
+        cleanResult = self.__clean_result() 
         
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
@@ -197,7 +216,7 @@ class VEPVariantLoader(VariantLoader):
                         xstr(alleleFreq, nullStr='NULL'),
                         xstr(msConseq, nullStr='NULL'),
                         xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
-                        xstr(resultJson),
+                        xstr(cleanResult), # cleaned result JSON
                         xstr(self._alg_invocation_id)
                         ]           
             
@@ -237,7 +256,7 @@ class VEPVariantLoader(VariantLoader):
             
             # there are json formatting issues w/the input str
             # so replace w/the parsed entry; which is now a dict
-            resultJson['input'] = entry.get_entry()
+            self._vep_parser.set('input', entry.get_entry())
             
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
@@ -251,7 +270,7 @@ class VEPVariantLoader(VariantLoader):
             self.__vep_parser.adsp_rank_and_sort_consequences()
     
             # iterate over alleles
-            self.__parse_alt_alleles(entry, resultJson)
+            self.__parse_alt_alleles(entry)
             
         except Exception as err:
             self.log(str(err), prefix="ERROR")
