@@ -172,7 +172,7 @@ class ConsequenceParser(object):
 
         attempt to integrate into the rankings if not found """
         
-        if len(terms) == 0:
+        if len(terms) == 1:
             return self.get_consequence_rank(terms[0])
 
         conseqKey = '.'.join(terms)
