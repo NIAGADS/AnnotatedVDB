@@ -1,7 +1,6 @@
 """! @brief VEP JSON Output Parser"""
 
 ##
-# @package parsers
 # @file vep_parser.py
 #
 # @brief  VEP JSON Output Parser
@@ -12,7 +11,7 @@
 #
 # @section todo_vep_parser TODO
 #
-# - None
+# - clean vep result to remove info that has been extracted
 #
 # @section libraries_vep_parser Libraries/Modules
 # - operator: standard operators as functions / use operator.itemgetter for sorting
@@ -63,6 +62,20 @@ class VepJsonParser(object):
         self._rankedConsequences = {}
 
 
+    def __find_matching_term(self, terms):
+        """! wrapper for ConsequenceParser.find_matching_consequence 
+        so that we can log new consequences when found
+        
+        @param terms             list of terms in the consequence combination
+        @returns rank
+        """
+        try: 
+            return self._consequenceParser.find_matching_consequence(terms, failOnMissing=True)
+        except IndexError as err:
+            self.log(str(err) + '-- ADDING consequence and re-ranking', prefix="WARNING")
+            return self._consequenceParser.find_matching_consequence(terms)
+
+
     def assign_adsp_consequence_rank(self, conseqDict):
         """! find and return rank and coding status for a consequence combination
 
@@ -72,8 +85,8 @@ class VepJsonParser(object):
 
         terms = conseqDict['consequence_terms']
         conseq = ','.join(terms)
-        if conseq not in self._rankedConsequences:
-            value = {'rank' : self._consequenceParser.find_matching_consequence(terms),
+        if conseq not in self._rankedConsequences:         
+            value = {'rank' : self.__find_matching_consequence(terms),
                      'consequence_is_coding': is_coding_consequence(terms)}
             self._rankedConsequences[conseq] = value
 
@@ -117,19 +130,22 @@ class VepJsonParser(object):
         summary = "No new consequences added"
         if self._consequenceParser.new_consequences_added():
             summary = ' '.join(("Added", xstr(self._consequenceParser.get_new_conseq_count()),
-                       "new consequences:", '[' + ','.join(self._consequenceParser.get_added_consequences()) +']'))
+                       "new consequences:", '[' + '; '.join(self._consequenceParser.get_added_consequences()) +']'))
         return summary
         
     def get_conseq_rank(self, conseq):
-        """!@returns value from consequence rank map for the specified
+        """! @returns value from consequence rank map for the specified
         consequence """
         return self._consequenceParser.get_consequence_rank(conseq)
 
 
     def __adsp_rank_consequences(self, conseqType):
-        """ extract consequences and apply ranking and sort,
+        """! extract consequences and apply ranking and sort,
         convert from list to list of dicts, keyed on allele
-        to ensure consequences are sorted per allele"""
+        to ensure consequences are sorted per allele
+        @param conseqType         one of CONSEQUENCE_TYPES
+        @returns ranked consequences
+        """
 
         result = None
         consequences = self.get(conseqType + '_consequences')
@@ -256,9 +272,9 @@ class VepJsonParser(object):
             return self._annotation[key]
 
 
-    def get_annotation(self):
+    def get_annotation(self, deepCopy=False):
         """ return updated annotation """
-        return self._annotation
+        return deepcopy(self.annotation) if deepCopy else self._annotation
     
     
     def __get_allele_consequences(self, allele, ctypeKey):
