@@ -165,7 +165,7 @@ def load_annotation(fileName, logFilePrefix):
             loader.log("DONE", prefix="INFO")
             
             # summarize new consequences
-            loader.log(("Counsequences added during load:", 
+            loader.log(("Consequences added during load:", 
                         loader.vep_parser().get_added_conseq_summary()), prefix="INFO")
             
             if args.test:
