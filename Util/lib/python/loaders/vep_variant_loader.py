@@ -218,7 +218,10 @@ class VEPVariantLoader(VariantLoader):
                         xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
                         xstr(cleanResult), # cleaned result JSON
                         xstr(self._alg_invocation_id)
-                        ]           
+                        ]      
+            
+            if self.is_adsp():
+                copyValues.append(xstr(True)) # is_adsp_variant
             
             if self._debug:
                 self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")

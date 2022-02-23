@@ -193,7 +193,10 @@ class VariantLoader(object):
 
     def initialize_copy_sql(self, copyFields=None):
         self._verify_copy_fields(copyFields)   
-        self._copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else copyFields
+        if copyFields is None:
+            self._copy_fields = DEFAULT_COPY_FIELDS 
+            if self.is_adsp():
+                self._copy_fields.append('is_adsp_variant')
         
         self._copy_sql = "COPY AnnotatedVDB.Variant("  \
          + ','.join(self._copy_fields) \
@@ -232,6 +235,18 @@ class VariantLoader(object):
         """!  @returns  flag indicating if datasource is dbsnp
         """
         return self._datasource == 'dbsnp'
+    
+    
+    def is_adsp(self):
+        """!  @returns  flag indicating if datasource is ADSP
+        """
+        return self._datasource == 'adsp'
+    
+    
+    def is_eva(self):
+        """!  @returns  flag indicating if datasource is EVA
+        """
+        return self._datasource == 'eva'
     
 
     def resume_load(self):
