@@ -26,7 +26,8 @@ def run():
     print("Match rank: " + str(rank))
     print()
             
-    newConseqCombo = ['TFBS_amplification','TF_binding_site_variant']
+    newConseqCombo = ['TFBS_amplification','TF_binding_site_variant'] \
+        if not args.testCombo else args.testCombo.split(',')
     print("#### Test add term and re-rank: " + ','.join(newConseqCombo))
     print("Fail on missing? True")
     try:
@@ -52,6 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('-f', '--fileName', required=True)
+    parser.add_argumetn('--testCombo')
 
     args = parser.parse_args()
 
