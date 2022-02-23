@@ -40,7 +40,7 @@ def initialize_loader(logFilePrefix):
     warning("Logging to", lfn)
     
     try:
-        loader = VEPVariantLoader('dbSNP', logFileName=lfn, verbose=args.verbose, debug=args.debug)
+        loader = VEPVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
         
         if args.verbose:
             loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
@@ -250,6 +250,9 @@ if __name__ == "__main__":
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--skipDuplicates',
                         help="check each variant against the database, load non-duplicates only -- time consuming")
+    parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
+                        default='dbSNP',
+                        help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
     args = parser.parse_args()
 
     validate_args()

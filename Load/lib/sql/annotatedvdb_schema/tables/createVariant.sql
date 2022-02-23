@@ -23,9 +23,10 @@ CREATE UNLOGGED TABLE AnnotatedVDB.Variant (
        ROW_ALGORITHM_ID	       INTEGER NOT NULL
 ) PARTITION BY LIST (CHROMOSOME);
 
+
 -- CREATE PARTITIONS
 
-CREATE OR REPLACE FUNCTION "public"."create_variant_partitions" ()  RETURNS integer
+CREATE OR REPLACE FUNCTION "annotatedvdb"."create_variant_partitions" ()  RETURNS integer
   VOLATILE
   AS $body$
 DECLARE
@@ -46,7 +47,8 @@ DECLARE
     END;
 $body$ LANGUAGE plpgsql;
 
-SELECT create_variant_partitions();
+SELECT annotatedvdb.create_variant_partitions();
+--SELECT annotatedvdb.alter_variant_autovacuum(FALSE); -- temp turn off autovacuum
 
 -- TRIGGERS
 

@@ -1,5 +1,5 @@
 
-CREATE OR REPLACE FUNCTION "public"."alter_variant_autovacuum" (status BOOLEAN)  RETURNS integer
+CREATE OR REPLACE FUNCTION "annotatedvdb"."alter_variant_autovacuum" (status BOOLEAN)  RETURNS integer
   VOLATILE
   AS $body$
 DECLARE
@@ -10,7 +10,7 @@ DECLARE
       FOR chr IN
         SELECT UNNEST(string_to_array('chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY chrM', ' '))
       LOOP   
-        partition := 'VARIANT' || '_' || chr::text;
+        partition := 'AnnotatedVDB.VARIANT' || '_' || chr::text;
         RAISE NOTICE 'Altering partition % -- autovacuum status: % ', partition, status;
 	EXECUTE 'ALTER TABLE ' || partition || ' SET (autovacuum_enabled=' || status::text || ', toast.autovacuum_enabled=' || status::text || ')';
       END LOOP; 
