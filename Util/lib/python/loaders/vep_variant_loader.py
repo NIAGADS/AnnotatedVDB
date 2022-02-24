@@ -161,7 +161,15 @@ class VEPVariantLoader(VariantLoader):
         # update the alleleFreq dict, taking into account nestedness
         return deep_update(alleleFreqs, alleleGMAFs)
     
+    
+    def __add_adsp_update_statement(self, recordPK, chromosome):
+        """ add update is_adsp_variant to update buffer """
+        updateStr = "UPDATE AnnotatedVDB.Variant SET " \
+            + "is_adsp_variant = true WHERE record_primary_key = '"  + recordPK + "' " \
+            + "AND chromosome = 'chr" + xstr(chromosome) + "';" # incl chromosome so it uses an index
+        self._update_buffer.write(updateStr)
         
+    
     def __parse_alt_alleles(self, vcfEntry):
         """! iterate over alleles and calculate values to load
             add to copy buffer
@@ -185,16 +193,23 @@ class VEPVariantLoader(VariantLoader):
             self.increment_counter('variant')
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
             
-            if not self.is_dbsnp() and self.skip_duplicates():
+            if not self.is_dbsnp() and self.skip_existing():
                 if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
                     self.increment_counter('duplicates')
+                    continue
+                
+            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
+                
+            if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
+                if self.is_duplicate(recordPK, 'PRIMARY_KEY'):
+                    self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
+                    self.increment_counter('update')
                     continue
             
             normRef, normAlt = annotator.get_normalized_alleles()
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt, normRef))
-            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-            
+
             # NOTE: VEP uses left normalized alleles to indicate freq allele, with - for full deletions
             # so need to use normalized alleles to match freq allele / consequence allele
             # to the correct variant alt allele
@@ -266,7 +281,7 @@ class VEPVariantLoader(VariantLoader):
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
-            if self.is_dbsnp() and self.skip_duplicates():
+            if self.is_dbsnp() and self.skip_existing():
                 if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', self._current_variant.chromosome):
                     self.increment_counter('duplicates')
                     return None

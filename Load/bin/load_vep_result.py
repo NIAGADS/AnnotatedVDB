@@ -54,8 +54,8 @@ def initialize_loader(logFilePrefix):
         loader.initialize_copy_sql() # use default copy fields
         loader.set_chromosome_map(chrmMap)
         
-        if args.skipDuplicates:
-            loader.set_skip_duplicates(True, args.gusConfigFile) # initialize validator db connection
+        if args.skipExisting:
+            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
         
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
@@ -125,6 +125,8 @@ def load_annotation(fileName, logFilePrefix):
                             loader.log(message, prefix="DEBUG") 
                         
                         loader.load_variants()
+                        if args.datasource.lower() == 'adsp':
+                            loader.update_variants()
 
                         message = '{:,}'.format(loader.get_count('variant')) + " variants"
                         messagePrefix = "COMMITTED"
@@ -138,6 +140,14 @@ def load_annotation(fileName, logFilePrefix):
                         if lineCount % args.logAfter == 0:
                             message += "; up to = " + loader.get_current_variant_id()
                             loader.log(message, prefix=messagePrefix)
+                            
+                            if loader.get_count('update') > 0:
+                                message = '{:,}'.format(loader.get_count('update')) + " variants"
+                                loader.log(message, prefix="UPDATED")
+                            
+                            if loader.get_count('duplicates'):
+                                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
+                                loader.log(message, prefix="SKIPPED")
 
                             if args.debug:
                                 tend = datetime.now()
@@ -162,6 +172,15 @@ def load_annotation(fileName, logFilePrefix):
                 message += " -- rolling back"
             message += "; up to = " + loader.get_current_variant_id()
             loader.log(message, prefix=messagePrefix)
+            
+            if loader.get_count('update') > 0:
+                message = '{:,}'.format(loader.get_count('update')) + " variants"
+                loader.log(message, prefix="UPDATED")
+                            
+            if loader.get_count('duplicates') > 0:
+                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
+                loader.log(message, prefix="SKIPPED")
+                
             loader.log("DONE", prefix="INFO")
             
             # summarize new consequences
@@ -248,7 +267,7 @@ if __name__ == "__main__":
                         help="log database copy time / may print development debug statements")
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
-    parser.add_argument('--skipDuplicates',
+    parser.add_argument('--skipExisting', action='store_true',
                         help="check each variant against the database, load non-duplicates only -- time consuming")
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',

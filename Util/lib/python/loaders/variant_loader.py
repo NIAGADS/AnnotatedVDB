@@ -103,16 +103,20 @@ class VariantLoader(object):
         self._copy_fields = None
         self._copy_sql = None
         
+        self._update_buffer = None
+        
         self._fail_at_variant = None
         self._variant_validator = None
-        self._skip_duplicates = False
+        self._skip_existing = False
 
         self._initialize_counters()
         self.initialize_copy_buffer()
+        self.initialize_update_buffer()
         
 
     def close(self):
         self.close_copy_buffer()
+        self.close_update_buffer()
         self.close_log()
         if self._variant_validator is not None:
             self._variant_validator.close()
@@ -126,8 +130,8 @@ class VariantLoader(object):
         self._variant_validator=VariantRecord(gusConfigFile, self._verbose, self._debug)
     
     
-    def set_skip_duplicates(self, skipDuplicates, gusConfigFile=None):
-        self._skip_duplicates = skipDuplicates
+    def set_skip_existing(self, skipDuplicates, gusConfigFile=None):
+        self._skip_existing = skipDuplicates
         if skipDuplicates:
             self.initialize_variant_validator(gusConfigFile)
             
@@ -136,8 +140,8 @@ class VariantLoader(object):
         return self._variant_validator.exists(variantId, idType, chromosome)
     
     
-    def skip_duplicates(self):
-        return self._skip_duplicates
+    def skip_existing(self):
+        return self._skip_existing
     
     
     def variant_validator(self):
@@ -212,6 +216,11 @@ class VariantLoader(object):
         """! reset copy buffer to clean up memory """    
         self.close_copy_buffer()
         self.initialize_copy_buffer()
+        
+        
+    def reset_update_buffer(self):
+        self.close_update_buffer()
+        self.initialize_update_buffer()
     
     
     def initialize_copy_buffer(self):
@@ -296,7 +305,7 @@ class VariantLoader(object):
     
     def _initialize_counters(self):
         """! initialize counters"""
-        self._counters = { 'line' : 0, 'variant': 0, 'skipped': 0, 'duplicates': 0}
+        self._counters = { 'line' : 0, 'variant': 0, 'skipped': 0, 'duplicates': 0, 'update': 0}
             
                 
     def cursor(self):
@@ -379,6 +388,18 @@ class VariantLoader(object):
                 message = ("Skipped", xstr(self.get_count('skipped'), "variants"))
                 self.log(message, prefix="INFO")
 
+
+    def update_variants(self):
+        """! execute update buffer
+        """
+        try:
+            self._update_buffer.seek(0)
+            self._cursor.execute(self._update_buffer.getvalue())
+        except Exception as e:
+            err = raise_pg_exception(e, returnError=True)
+            self.log(str(err), prefix="ERROR")
+            raise err
+        
 
     def load_variants(self):
         """! perform copy operation to insert variants into the DB """ 
