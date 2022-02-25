@@ -41,10 +41,8 @@ LOOKUP_SQL = {
     'PRIMARY_KEY' : PRIMARY_KEY_LOOKUP_SQL
 }
 
-
-def VariantRecord(object):
-    """! functions finding and validating against variants in the DB 
-    
+class VariantRecord(object):
+    """! functions finding and validating against variants in the DB    
     creates one database cursor for each type of lookups to avoid locks
     """
     
@@ -55,10 +53,10 @@ def VariantRecord(object):
         @param debug                  flag for debug output
         @returns                      An instance of the VariantLoader class with initialized database cursor
         """
-        __debug = debug
-        __verbose = verbose
-        __database = None
-        __cursors = {}                # possibly one for each ID TYPE
+        self.__debug = debug
+        self.__verbose = verbose
+        self.__database = None
+        self.__cursors = {}                # possibly one for each ID TYPE
                 
         self.__initialize_database(gusConfigFile)
         
@@ -77,7 +75,7 @@ def VariantRecord(object):
     
     def close_cursors(self):
         """! close any open database cursors"""
-        for cursor in self.__cursors:
+        for cursor in self.__cursors.values():
             cursor.close()
             
         
@@ -92,7 +90,7 @@ def VariantRecord(object):
         self.close_database()
     
         
-    def _exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback):
         """! garbage collection """
         self.close()
         
@@ -143,8 +141,8 @@ def VariantRecord(object):
         self.__validate_id_type(idType)
         
         try:
-            cursor = get_cursor('EXISTS', initializeIfMissing=True, realDict=False)
-            sql = ' '.join(EXISTS_SQL, LOOKUP_SQL[idType])
+            cursor = self.get_cursor('EXISTS', initializeIfMissing=True, realDict=False)
+            sql = EXISTS_SQL + ' ' + LOOKUP_SQL[idType]
 
             numBindParams = sql.count('%s')
             params = []
@@ -152,7 +150,7 @@ def VariantRecord(object):
                 params.append(variantId)
             
             if chromosome is not None: # for refsnp lookups
-                sql += ' AND chromosome = '
+                sql += ' AND chromosome = %s'
                 params.append(chromosome)
             
             cursor.execute(sql, tuple(params))

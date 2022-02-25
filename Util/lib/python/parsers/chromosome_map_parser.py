@@ -22,7 +22,7 @@
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import csv
-from GenomicsDBData.Util.utils import warning
+from GenomicsDBData.Util.utils import warning, xstr
 
 class ChromosomeMap(object):
     """! Generator for chromosome map parser/object
@@ -75,7 +75,7 @@ class ChromosomeMap(object):
             @returns                   matching sequence id, None if not found
         """
         for sequenceId, cn in self.__map.items():
-            if cn == chrmNum:
+            if cn == chrmNum or cn == 'chr' + xstr(chrmNum):
                 return sequenceId
             
         return None

@@ -16,13 +16,14 @@ import csv
 
 from datetime import datetime
 from os import path
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die
+from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die, get_opener
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-from AnnotatedVDB.Util.loaders import VEPVariantLoader 
+from AnnotatedVDB.Util.loaders import VCFVariantLoader 
 from AnnotatedVDB.Util.parsers import ChromosomeMap
 from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
@@ -39,22 +40,21 @@ def initialize_loader(logFilePrefix):
     warning("Logging to", lfn)
     
     try:
-        loader = VEPVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
+        loader = VCFVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
         
         if args.verbose:
             loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
-        loader.set_algorithm_invocation('load_vep_result', xstr(logFilePrefix) + '|' + print_args(args, False))
+        loader.set_algorithm_invocation('load_vcf_result', xstr(logFilePrefix) + '|' + print_args(args, False))
         loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
-        loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
         loader.set_chromosome_map(chrmMap)
         
-        if args.skipExisting:
-            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
+
+        loader.set_skip_existing(args.skipExisting, args.gusConfigFile) # initialize validator db connection
         
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
@@ -68,8 +68,7 @@ def initialize_loader(logFilePrefix):
 
 
 def load_annotation(fileName, logFilePrefix):
-    """! parse over a JSON file, extract position, frequencies,
-    ids, and ADSP-ranked most severe consequence; bulk load using COPY """
+    """! parse over a VCF file; bulk load using COPY """
  
     loader = initialize_loader(logFilePrefix)
     loader.log('Parsing ' + fileName, prefix="INFO")
@@ -83,80 +82,86 @@ def load_annotation(fileName, logFilePrefix):
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
-        with open(fileName, 'r') as fhandle, database.cursor() as cursor:
+        opener = get_opener(args.fileName)
+        with opener(fileName, 'r') as fhandle, database.cursor() as cursor:
             loader.set_cursor(cursor)
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
-            with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
-                lineCount = 0
-                for line in gfh:
-                    if (lineCount == 0 and not loader.resume_load()) \
-                        or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
-                        if args.debug:
-                            loader.log('Processing new copy object', prefix="DEBUG")
-                        tstart = datetime.now()
-                            
-                    loader.parse_variant(line.rstrip())
-                    lineCount += 1
+            lineCount = 0
+            for line in iter(mappedFile.readline, b""):
+                line = line.decode("utf-8")  # in python 3, mapped file is a  binary IO object
+                if line.startswith("#"): # skip comments
+                    continue    
+                
+                if (lineCount == 0 and not loader.resume_load()) \
+                    or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
+                    if args.debug:
+                        loader.log('Processing new copy object', prefix="DEBUG")
+                    tstart = datetime.now()
                         
-                    if not loader.resume_load():
-                        if lineCount % args.logAfter == 0:
-                            loader.log(('{:,}'.format(lineCount), "lines"), 
-                                        prefix="SKIPPED")
-                        continue
-                        
-                    if loader.resume_load() != resume: # then you are at the resume cutoff
-                        resume = True
+                loader.parse_variant(line.rstrip())
+                lineCount += 1
+                    
+                if not loader.resume_load():
+                    if lineCount % args.logAfter == 0:
                         loader.log(('{:,}'.format(lineCount), "lines"), 
                                     prefix="SKIPPED")
-                        continue
+                    continue
                     
-                    if lineCount % args.logAfter == 0 \
-                        and lineCount % args.commitAfter != 0:
-                        loader.log((lineCount, "lines (", 
-                                    loader.get_count('variant'), " variants)"), 
-                                    prefix="PARSED")
+                if loader.resume_load() != resume: # then you are at the resume cutoff
+                    resume = True
+                    loader.log(('{:,}'.format(lineCount), "lines"), 
+                                prefix="SKIPPED")
+                    continue
+                
+                if lineCount % args.logAfter == 0 \
+                    and lineCount % args.commitAfter != 0:
+                    loader.log((lineCount, "lines (", 
+                                loader.get_count('variant'), " variants)"), 
+                                prefix="PARSED")
 
-                    if lineCount % args.commitAfter == 0:
-                        if args.debug:
-                            tendw = datetime.now()
-                            message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
-                                str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
-                            loader.log(message, prefix="DEBUG") 
+                if lineCount % args.commitAfter == 0:
+                    if args.debug:
+                        tendw = datetime.now()
+                        message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
+                            str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
+                        loader.log(message, prefix="DEBUG") 
+                    
+                    loader.load_variants()
+                    if args.datasource.lower() == 'adsp':
+                        loader.update_variants()
+
+                    message = '{:,}'.format(loader.get_count('variant')) + " variants"
+                    messagePrefix = "COMMITTED"
+                    if args.commit:
+                        database.commit()
+                    else:
+                        database.rollback()
+                        messagePrefix = "LOADED"
+                        message += " -- rolling back"
+
+                    if lineCount % args.logAfter == 0:
+                        message += "; up to = " + loader.get_current_variant_id()
+                        loader.log(message, prefix=messagePrefix)
                         
-                        loader.load_variants()
-                        if args.datasource.lower() == 'adsp':
-                            loader.update_variants()
+                        if loader.get_count('update') > 0:
+                            message = '{:,}'.format(loader.get_count('update')) + " variants"
+                            loader.log(message, prefix="UPDATED")
+                        
+                        if loader.get_count('duplicates') > 0:
+                            message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
+                            loader.log(message, prefix="SKIPPED")
 
-                        message = '{:,}'.format(loader.get_count('variant')) + " variants"
-                        messagePrefix = "COMMITTED"
-                        if args.commit:
-                            database.commit()
-                        else:
-                            database.rollback()
-                            messagePrefix = "PARSED"
-                            message += " -- rolling back"
+                        if args.debug:
+                            tend = datetime.now()
+                            loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
+                            loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
 
-                        if lineCount % args.logAfter == 0:
-                            message += "; up to = " + loader.get_current_variant_id()
-                            loader.log(message, prefix=messagePrefix)
-                            
-                            if loader.get_count('update') > 0:
-                                message = '{:,}'.format(loader.get_count('update')) + " variants"
-                                loader.log(message, prefix="UPDATED")
-                            
-                            if loader.get_count('duplicates'):
-                                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-                                loader.log(message, prefix="SKIPPED")
+                    if args.test:
+                        break
 
-                            if args.debug:
-                                tend = datetime.now()
-                                loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
-                                loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
-
-                        if args.test:
-                            break
-
-            # ============== end with gzip.GzipFile ===================
+            mappedFile.close()
+            
+            # ============== end mapped file ===================
             
             # commit anything left in the copy buffer
             loader.load_variants();
@@ -167,7 +172,7 @@ def load_annotation(fileName, logFilePrefix):
                 database.commit()
             else:
                 database.rollback()
-                messagePrefix = "PARSED"
+                messagePrefix = "LOADED"
                 message += " -- rolling back"
             message += "; up to = " + loader.get_current_variant_id()
             loader.log(message, prefix=messagePrefix)
@@ -181,11 +186,7 @@ def load_annotation(fileName, logFilePrefix):
                 loader.log(message, prefix="SKIPPED")
                 
             loader.log("DONE", prefix="INFO")
-            
-            # summarize new consequences
-            loader.log(("Consequences added during load:", 
-                        loader.vep_parser().get_added_conseq_summary()), prefix="INFO")
-            
+                        
             if args.test:
                 loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
                 
@@ -199,7 +200,7 @@ def load_annotation(fileName, logFilePrefix):
         raise(err)
     except Exception as err:
         loader.log("Problem parsing variant: " + loader.get_current_variant_id(), prefix="ERROR")
-        loader.log((lineCount, ":", print_dict(json.loads(line))), prefix="LINE")
+        loader.log((lineCount, ":", print_dict(line)), prefix="LINE")
         loader.log(str(err), prefix="ERROR")
         raise(err)
     finally:
@@ -233,11 +234,11 @@ def validate_args():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(allow_abbrev=False, # otherwise it can substitute --chr for --chromosomeMap
-                                    description='load AnnotatedDB from JSON output of VEP against dbSNP, specify either a file or one or more chromosomes')
+                                    description='load AnnotatedDB from a VCF file, specify either a file or one or more chromosomes')
     parser.add_argument('-d', '--dir',
-                        help="directory containing VEP results / only necessary for parallel load", required=True)
+                        help="directory containing VCF files / only necessary for parallel load", required=True)
     parser.add_argument('-e', '--extension', 
-                        help="file extension (e.g., json.gz) / required for parallel load")
+                        help="file extension (e.g., vcf.gz) / required for parallel load")
     parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
     parser.add_argument('-s', '--seqrepoProxyPath', required=True,
                         help="full path to local SeqRepo file repository")
@@ -251,7 +252,7 @@ if __name__ == "__main__":
     parser.add_argument('--test', action='store_true',
                         help="load 'commitAfter' rows as test")
     parser.add_argument('--resumeAfter',
-                        help="refSnpId after which to resume load (log lists lasts committed refSNP)")
+                        help="variantId after which to resume load (log lists lasts committed variantId)")
     parser.add_argument('-c', '--chr', 
                         help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
     parser.add_argument('--fileName',

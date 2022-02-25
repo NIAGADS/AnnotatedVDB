@@ -56,12 +56,12 @@ from AnnotatedVDB.Util.algorithm_invocation import AlgorithmInvocation
 from AnnotatedVDB.Util.database import VariantRecord
 
 ALLOWABLE_COPY_FIELDS = ["chromosome", "record_primary_key", "position", 
-                         "is_multi_allelic", "is_adsp_variant", "ref_snp_id", 
-                         "metaseq_id", "bin_index", "display_attributes", 
-                         "allele_frequencies", "cadd_scores", 
-                         "adsp_most_severe_consequence", "adsp_ranked_consequences", 
-                         "loss_of_function", "vep_output", "adsp_qc", 
-                         "gwas_flags", "other_annotation", "row_algorithm_id"]
+                        "is_multi_allelic", "is_adsp_variant", "ref_snp_id", 
+                        "metaseq_id", "bin_index", "display_attributes", 
+                        "allele_frequencies", "cadd_scores", 
+                        "adsp_most_severe_consequence", "adsp_ranked_consequences", 
+                        "loss_of_function", "vep_output", "adsp_qc", 
+                        "gwas_flags", "other_annotation", "row_algorithm_id"]
 
 REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq_id", "bin_index", "row_algorithm_id"]
 
@@ -90,7 +90,7 @@ class VariantLoader(object):
         self._pk_generator = None
         self._bin_indexer = None
         
-         ## database cursor
+        ## database cursor
         self._cursor = None
         
         self._counters = {}
@@ -122,12 +122,12 @@ class VariantLoader(object):
             self._variant_validator.close()
     
         
-    def _exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback):
         self.close()
         
     
     def initialize_variant_validator(self, gusConfigFile):
-        self._variant_validator=VariantRecord(gusConfigFile, self._verbose, self._debug)
+        self._variant_validator = VariantRecord(gusConfigFile, self._verbose, self._debug)
     
     
     def set_skip_existing(self, skipDuplicates, gusConfigFile=None):
@@ -197,16 +197,22 @@ class VariantLoader(object):
 
     def initialize_copy_sql(self, copyFields=None):
         self._verify_copy_fields(copyFields)   
-        if copyFields is None:
-            self._copy_fields = DEFAULT_COPY_FIELDS 
-            if self.is_adsp():
-                self._copy_fields.append('is_adsp_variant')
+        
+        self._copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else copyFields
+            
+        if self.is_adsp() and 'is_adsp_variant' not in self._copy_fields:
+            self._copy_fields.append('is_adsp_variant')
         
         self._copy_sql = "COPY AnnotatedVDB.Variant("  \
-         + ','.join(self._copy_fields) \
-         + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
+            + ','.join(self._copy_fields) \
+            + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
 
 
+    def close_update_buffer(self):
+        """! close the update buffer """
+        self._update_buffer.close()
+        
+        
     def close_copy_buffer(self):
         """! close the copy buffer """
         self._copy_buffer.close()
@@ -228,6 +234,16 @@ class VariantLoader(object):
         self._copy_buffer = StringIO()
         
         
+    def initialize_update_buffer(self):
+        """! initialize the update buffer (io.StringIO) """
+        self._update_buffer = StringIO()
+        
+        
+    def update_buffer(self, sizeOnly=False):
+        """! returns update buffer """
+        return self._update_buffer.tell() if sizeOnly else self._update_buffer()
+    
+    
     def copy_buffer(self, sizeOnly=False):
         """! returns copy buffer
         @param sizeOnly               return size only 
@@ -413,7 +429,7 @@ class VariantLoader(object):
             raise err
         
         
-    def parse_result(self, result):
+    def parse_variant(self, line):
         """! parse & load single line from file 
         @param result             the line from the result file
         @returns copy string for db load 

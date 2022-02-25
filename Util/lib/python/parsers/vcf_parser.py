@@ -27,7 +27,7 @@
 
 from types import SimpleNamespace
 
-from GenomicsDBData.Util.utils import xstr, warning, convert_str2numeric_values
+from GenomicsDBData.Util.utils import xstr, warning, convert_str2numeric_values, to_numeric
 from GenomicsDBData.Util.list_utils import qw
 
 class VcfEntryParser(object):
@@ -114,7 +114,7 @@ class VcfEntryParser(object):
         
         return SimpleNamespace(**variant) if namespace else variant
     
-    
+
     def get_refsnp(self):
         """! extract refsnp id from vcf entry dictionary
         @returns ref_snp_id 
@@ -149,6 +149,32 @@ class VcfEntryParser(object):
         else:
             return None
         
+        
+    def get_frequencies(self, allele):
+        """! retrieve allele frequencies reported in INFO FREQ field
+        @param allele          allele to match (not normalized)
+        @param vcfGMAFs         global minor allele frequencies from the VCF FREQ info field
+        @returns               dict of source:frequency for the allele
+        """
+        
+        vcfGMAFs = self.get_info('FREQ')
+        if vcfGMAFs is None:
+            return None
+        
+        zeroValues = ['.', '0']
+
+        # FREQ=GnomAD:0.9986,0.001353|Korea1K:0.9814,0.01861|dbGaP_PopFreq:0.9994,0.0005901
+        # altIndex needs to be incremented as first value is for the ref allele)
+        altAlleles = self.get('alt').split(',')
+        altIndex = altAlleles.index(allele) + 1
+        populationFrequencies = {pop.split(':')[0]:pop.split(':')[1] for pop in vcfGMAFs.split('|')}
+        vcfFreqs = {pop: {'gmaf': to_numeric(freq.split(',')[altIndex])} \
+                    for pop, freq in populationFrequencies.items() \
+                    if freq.split(',')[altIndex] not in zeroValues}
+    
+        return None if len(vcfFreqs) == 0 else vcfFreqs
+
+
 
     def infer_variant_end_location(self, alt, normRef):
         """! infer span of indels/deletions for a 

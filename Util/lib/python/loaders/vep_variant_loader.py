@@ -1,13 +1,13 @@
-"""! @brief Annotated VDB Loader """
+"""! @brief Annotated VDB VEP Loader """
 #!pylint: disable=invalid-name
 ##
 # @package loaders
 # @file vep_variant_loader.py
 #
-# @brief  Annotated VDB Loader
+# @brief  Annotated VDB VEP Loader
 #
 # @section vep_variant_loader Description
-# provides functions & class for managing variant loads
+# provides functions & class for managing variant loads from VEP result 
 #
 # @section todo_vep_variant_loader TODO
 # - create __verify_current_variant() to make sure _current_variant is set before trying to access
@@ -118,41 +118,18 @@ class VEPVariantLoader(VariantLoader):
             result.pop(ctypeKey, None)
             
         return result
-    
-    
-    def __parse_vcf_frequencies(self, allele, vcfGMAFs):
-        """! retrieve allele frequencies reported in INFO FREQ field
-        @param allele          allele to match (not normalized)
-        @param vcfGMAFs         global minor allele frequencies from the VCF FREQ info field
-        @returns               dict of source:frequency for the allele
-        """
-        
-        if vcfGMAFs is None:
-            return None
-        
-        zeroValues = ['.', '0']
-
-        # FREQ=GnomAD:0.9986,0.001353|Korea1K:0.9814,0.01861|dbGaP_PopFreq:0.9994,0.0005901
-        # altIndex needs to be incremented as first value is for the ref allele)
-        altIndex = self._current_variant.alt_alleles.index(allele) + 1
-        populationFrequencies = {pop.split(':')[0]:pop.split(':')[1] for pop in vcfGMAFs.split('|')}
-        vcfFreqs = {pop: {'gmaf': to_numeric(freq.split(',')[altIndex])} \
-                    for pop, freq in populationFrequencies.items() \
-                    if freq.split(',')[altIndex] not in zeroValues}
-    
-        return None if len(vcfFreqs) == 0 else vcfFreqs
 
 
-    def __add_vcf_frequencies(self, alleleFreqs, vcfFreqs, allele):
+    def __add_vcf_frequencies(self, alleleFreqs, vcfEntry, allele):
         """! add VCF GMAF from the VCF FREQ INFO field to allele frequencies 
 
             @param alleleFreqs         allele frequencies from VEP result
-            @param vcfFreqs            FREQ string from VCF INFO field
-            @param allele             _description_
-            @returns                 _description_
+            @param vcfEntry            VCF entry
+            @param allele              alt allele to match
+            @returns                  updated frequency dictionary
         """
         
-        alleleGMAFs = self.__parse_vcf_frequencies(allele, vcfFreqs)
+        alleleGMAFs = vcfEntry.get_frequencies(allele)
         if alleleFreqs is None:
             return alleleGMAFs
         if alleleGMAFs is None:
@@ -175,10 +152,11 @@ class VEPVariantLoader(VariantLoader):
             add to copy buffer
             @param vcfEntry             the VCF entry for the current variant
         """
-        # extract result frequencies
+        
         if self._debug:
             self.log('Entering ' + type(self).__name__ + '.' + 'parse_alt_alleles', prefix="DEBUG")
-            
+        
+        # extract result frequencies    
         frequencies = self.__get_result_frequencies()
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
@@ -216,7 +194,7 @@ class VEPVariantLoader(VariantLoader):
             normRef, normAlt = annotator.get_normalized_alleles(snvDivMinus=True)
             alleleFreq = None if frequencies is None \
                 else self.__get_allele_frequencies(normAlt, frequencies)    
-            alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry.get_info('FREQ'), alt)
+            alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry, alt)
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
 
@@ -244,9 +222,9 @@ class VEPVariantLoader(VariantLoader):
             self.add_copy_str('#'.join(copyValues))
 
     
-    def parse_result(self, result):
+    def parse_variant(self, line):
         """! parse & load single line from file 
-        @param result             the VEP result in string form
+        @param line             the VEP result in string form
         @returns copy string for db load 
         """
         if self._debug:
@@ -254,7 +232,7 @@ class VEPVariantLoader(VariantLoader):
             self.log(('Resume?', self.resume_load()), prefix="DEBUG")
             
         if self.resume_load() is False and self._resume_after_variant is None:
-            err = ValueError('Must set VariantLoader result_afer_variant if resuming load')
+            err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
             self.log(str(err), prefix="ERROR")
             raise err
         
@@ -262,7 +240,7 @@ class VEPVariantLoader(VariantLoader):
         
         try:
             self.increment_counter('line')
-            resultJson = json.loads(result)
+            resultJson = json.loads(line)
             self.__vep_parser.set_annotation(deepcopy(resultJson))
  
             entry = VcfEntryParser(self.__vep_parser.get('input'))
@@ -282,7 +260,7 @@ class VEPVariantLoader(VariantLoader):
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
             if self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', self._current_variant.chromosome):
+                if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', 'chr' + self._current_variant.chromosome):
                     self.increment_counter('duplicates')
                     return None
         

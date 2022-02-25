@@ -90,7 +90,7 @@ class VariantAnnotator(object):
         @param rsPosition       dbSNP property RSPOS
         @returns                 dict containing display attributes
         """
-
+        
         if rsPosition is None:
             rsPosition = self.__position
             
@@ -102,12 +102,11 @@ class VariantAnnotator(object):
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
 
-
         attributes = {
             'location_start': self.__position,
             'location_end': self.__position
         }
-
+     
         if (refLength == 1 and altLength == 1): # SNV
             attributes.update({
                 'variant_class': "single nucleotide variant",
