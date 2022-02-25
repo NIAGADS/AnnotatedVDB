@@ -65,7 +65,7 @@ class VCFVariantLoader(VariantLoader):
     
     
     def initialize_copy_sql(self, copyFields=None):
-        copyFields = REQUIRED_COPY_FIELDS
+        copyFields = REQUIRED_COPY_FIELDS # "chromosome", "record_primary_key", "position", "metaseq_id", "bin_index", "row_algorithm_id"]
         copyFields.extend(["ref_snp_id", "is_multi_allelic", "display_attributes", "allele_frequencies"])
         if self._debug:
             self.log(copyFields, prefix="DEBUG")
@@ -85,8 +85,7 @@ class VCFVariantLoader(VariantLoader):
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
         
-        for alt in variant.alt_alleles:   
-            
+        for alt in variant.alt_alleles:              
             if alt == '.':
                 self.log(("Skipping variant", self._current_variant.id, "no alt allele (alt = .)"), prefix="WARNING")
                 self.increment_counter('skipped')

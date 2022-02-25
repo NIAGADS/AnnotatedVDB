@@ -206,6 +206,9 @@ class VariantLoader(object):
         self._copy_sql = "COPY AnnotatedVDB.Variant("  \
             + ','.join(self._copy_fields) \
             + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
+            
+        if self._debug:
+            self.log("SQL = " + self._copy_sql, prefix="DEBUG")
 
 
     def close_update_buffer(self):

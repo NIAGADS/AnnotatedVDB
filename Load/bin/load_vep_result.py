@@ -11,8 +11,7 @@ import argparse
 import gzip
 import mmap
 import json
-import sys
-import csv
+import glob
 
 from datetime import datetime
 from os import path
@@ -229,7 +228,13 @@ def validate_args():
                 die("Loading by chromosome, please supply path to directory containing the VEP results")
             if not args.extension:
                 die("Loading by chromosome, please provide file extension. Assume file names are like chr1.extension / TODO: pattern matching")
-            
+
+
+def get_input_file_name(chrm):
+    """ find the file that matches the chromosome & specified extension """  
+    fileName = glob.glob('*chr' + xstr(chr) + args.extension, root_dir=args.dir)   # *chr b/c there may be a prefix
+    return path.join(args.dir, fileName)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(allow_abbrev=False, # otherwise it can substitute --chr for --chromosomeMap
@@ -291,10 +296,8 @@ if __name__ == "__main__":
                     if args.chr == 'allNoM' and c == 'M':
                         continue 
                     warning("Create and start thread for chromosome:", xstr(c))
-                    inputFile = path.join(args.dir, 
-                        'chr' + xstr(c) + "." + args.extension)
+                    inputFile = get_input_file_name(c)
                     executor.submit(load_annotation, fileName=inputFile, logFilePrefix='chr' + xstr(c))
             else: # debugs better w/out thread overhead, so single file -- no threading
-                inputFile = path.join(args.dir, 
-                        'chr' + xstr(chrList[0]) + "." + args.extension)
+                inputFile = get_input_file_name(chrList[0])
                 load_annotation(inputFile, 'chr' + xstr(chrList[0]))
