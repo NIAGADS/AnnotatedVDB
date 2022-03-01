@@ -82,7 +82,6 @@ class VariantPKGenerator(object):
         self._translator.normalize = normalize
 
 
-
     def translate_vrs(self, vrsDict, formatSpec="spdi"):
         """! translate VRS allele dict back to HGVS or SPDI format / for validation purposes
         @param vrsDict           the VRS Allele Dict object

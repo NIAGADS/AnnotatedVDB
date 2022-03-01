@@ -40,8 +40,7 @@ def initialize_loader(logFilePrefix):
     try:
         loader = VEPVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
         
-        if args.verbose:
-            loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
+        loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
         loader.set_algorithm_invocation('load_vep_result', xstr(logFilePrefix) + '|' + print_args(args, False))
         loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
@@ -256,7 +255,7 @@ if __name__ == "__main__":
     parser.add_argument('--test', action='store_true',
                         help="load 'commitAfter' rows as test")
     parser.add_argument('--resumeAfter',
-                        help="refSnpId after which to resume load (log lists lasts committed refSNP)")
+                        help="variant after which to resume load (log lists lasts committed variant)")
     parser.add_argument('-c', '--chr', 
                         help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
     parser.add_argument('--fileName',

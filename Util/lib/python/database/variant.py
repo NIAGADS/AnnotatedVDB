@@ -25,6 +25,7 @@
 # @section author_variant Author(s)
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
+import sqlite3
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
 VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']
@@ -111,7 +112,7 @@ class VariantRecord(object):
         """
         cursorFactory = 'RealDictCursor' if realDict else None
         self.__cursors[cursorKey] = self.__database.cursor(cursorFactory)
-    
+
     
     def get_cursor(self, cursorKey, initializeIfMissing=False, realDict=False):
         """! get / initialize a database cursor
@@ -128,6 +129,44 @@ class VariantRecord(object):
     
         return self.__cursors[cursorKey]
     
+    
+    def has_attr(self, field, variantId, idType, returnVal=True):
+        """! checks to see the variant has a value for that field
+        usually used before an update so returning PK incase lookup is not the PK
+        
+            @param field                field/column to query
+            @param variantId             variant identifier
+            @param idType                type of variant identifier, must match one of VARIANT_ID_TYPES
+            @param returnVal             return the value if True else return boolean flag
+            @returns    tuple that is (primary key, value of the attribute/ None if null) or (primary_key, boolean)
+        """
+        idType = idType.upper()
+        self.__validate_id_type(idType)
+      
+        try: 
+            cursorKey = 'HAS_ATTR_' + field + '_' + idType
+            sql = "SELECT record_primary_key, " + field + " FROM AnnotatedVDB.Variant WHERE " + LOOKUP_SQL[idType]
+            cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
+            numBindParams = sql.count('%s')
+            params = []
+            for i in range(0, numBindParams):
+                params.append(variantId)
+            
+            cursor.execute(sql, tuple(params))
+            result = cursor.fetchone()
+            
+            if result is None:
+                return None # variant not in db
+            
+            return result if returnVal else (result[0], result is not None)
+
+        except Exception as err:
+            raise_pg_exception(err)
+            
+        return None
+        
+        
+    
         
     def exists(self, variantId, idType, chromosome=None):
         """! check if against the AnnotatedVDB to see if a variant with the specified id is already present
@@ -139,8 +178,9 @@ class VariantRecord(object):
         """
         idType = idType.upper()
         self.__validate_id_type(idType)
-        
+       
         try:
+            cursorKey = 'EXISTS_' + idType
             cursor = self.get_cursor('EXISTS', initializeIfMissing=True, realDict=False)
             sql = EXISTS_SQL + ' ' + LOOKUP_SQL[idType]
 

@@ -7,258 +7,272 @@ Looks up database variants by chromome and uses pysam
 to map against the CADD tab-indexed SNV file
 '''
 
-from __future__ import with_statement
-from __future__ import print_function
-
 import argparse
 import os.path as path
-import gzip
-import csv
-import json
-import pysam
 import random
-import psycopg2
 import sys
 
-from GenomicsDBData.Util.utils import qw, xstr, warning, die
-from GenomicsDBData.Util.postgres_dbi import Database
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from psycopg2 import DatabaseError
 
-from AnnotatedVDB.Util.cadd_updater import CADDUpdater
-from AnnotatedVDB.Util.vcf_parser import VcfEntryParser
+from GenomicsDBData.Util.utils import xstr, warning, die, print_dict, print_args
+from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
-
+from AnnotatedVDB.Util.parsers import VcfEntryParser
+from AnnotatedVDB.Util.loaders import CADDUpdater
 from AnnotatedVDB.Util.chromosomes import Human
 
-
-def update_variant_record(record, updater, isIndel): 
-    metaseqId = record['metaseq_id']
-
-    # if args.debug:
-    #    warning("Matching", metaseqId, file=updater.lfh(), flush=True)
-
-    chrm, position, refAllele, altAllele = metaseqId.split(':')
-
-    matched = False
-    for match in updater.match(chrm, position, isIndel):
-        matchedAlleles = [match[2], match[3]]
-
-        if refAllele in matchedAlleles and altAllele in matchedAlleles:
-            evidence = {'CADD_raw_score': float(match[4]), 'CADD_phred': float(match[5])}
-            updater.buffer_update_sql(metaseqId, evidence)
-            updater.increment_update_count(isIndel)
-            matched = True
-            if args.debug: 
-                warning(metaseqId, "- matched -", matchedAlleles, evidence, file=updater.lfh(), flush=True)
-            break # no need to look for more matches
-
-    if not matched:
-        updater.buffer_update_sql(metaseqId, {}) # create a place holder to avoid future lookups
-        updater.increment_not_matched_count()
-        if args.debug:
-            warning(metaseqId, "- not matched", file=updater.lfh(), flush=True)
+SELECT_SQL = "SELECT record_primary_key, metaseq_id, cadd_scores FROM AnnotatedVDB.Variant WHERE chromosome = %s"
 
 
-def update_variant_records_from_vcf():
-    ''' lookup and update variant records from a VCF file 
-    assuming the load by file was called by a plugin, so this variant has already been
-    verified to be new to the resource; no need to check alternative metaseq IDs'''
+def initialize_loader(logFilePrefix):
+    """! initialize loader """
 
-    cupdater = CADDUpdater(args.logFile, args.databaseDir)
+    lfn = path.join(args.logFilePath, xstr(logFilePrefix + ".log"))
+    warning("Logging to", lfn)
+    
+    try:
+        loader = CADDUpdater(args.databaseDir, logFileName=lfn, verbose=args.verbose, debug=args.debug)
 
-    database = Database(args.gusConfigFile)
-    database.connect()
+        loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
-    lineCount = 0
-    with database.cursor() as updateCursor, \
-      open(args.vcfFile, 'r') as fh:
-        try:
-            for line in fh:
-                if line.startswith("#"):
-                    continue
-
-                lineCount = lineCount + 1
-                entry = VcfEntryParser(line.rstrip())
-                
-                refAllele = entry.get('ref')
-                altAllele = entry.get('alt')
-                chrom = xstr(entry.get('chrom'))
-                if chrom == 'MT':
-                    chrom = 'M'
-                position = int(entry.get('pos'))
-                metaseqId = ':'.join((chrom, xstr(position), refAllele, altAllele))
-
-                record = {"metaseq_id" : metaseqId}  # mimic "record"
-
-                if len(refAllele) > 1 or len(altAllele) > 1: # only doing SNVs
-                    update_variant_record(record, cupdater, INDEL)
-                else:
-                    update_variant_record(record, cupdater, SNV)
-
-                if lineCount % args.commitAfter == 0:
-                    warning("Processed:", lineCount, "- SNVs:",
-                            cupdater.get_update_count(SNV), "- INDELS:", cupdater.get_update_count(INDEL),
-                            " - Not Matched:", cupdater.get_not_matched_count(),
-                            file=cupdater.lfh(), flush=True)
-
-                    updateCursor.execute(cupdater.sql_buffer_str())
-
-                    if args.commit:
-                        database.commit()
-                    else:
-                        database.rollback()
-                    cupdater.clear_update_sql()
-
-            if cupdater.buffered_variant_count() > 0:  # trailing
-                updateCursor.execute(cupdater.sql_buffer_str())
-
-                if args.commit:
-                    database.commit()
-                else:
-                    database.rollback()
-
-            warning("DONE - Updated SNVs:", cupdater.get_update_count(SNV), "- Updated INDELS:",
-                    cupdater.get_update_count(INDEL), 
-                    "- Not Matched:", cupdater.get_not_matched_count(), file=cupdater.lfh(), flush=True)
-
-            cupdater.close_lfh()
-
-        except Exception as e:
-            warning(e, entry, file=cupdater.lfh(), flush=True)
-            database.rollback()
-            database.close()
-            print("FAIL", file=sys.stdout)
-            raise
-
+        loader.set_algorithm_invocation('load_cadd_scores', xstr(logFilePrefix) + '|' + print_args(args, False))
+        loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
         
-           
-def update_variant_records(chromosome):
-    chrLabel = 'chr' + xstr(chromosome)
+        loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
+        
+        if args.skipExisting:
+            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection   
+        
+    except Exception as err:
+        warning("ERROR", "Problem initializing Loader")
+        raise(err)
+        
+    return loader
+    
 
-    logFileName = path.join(args.logFilePath, chrLabel + '.log')
-    cupdater = CADDUpdater(logFileName, args.databaseDir)
-    cupdater.setChrm(chrLabel)
-
-    selectSQL = "SELECT metaseq_id, cadd_scores FROM Variant_" + chrLabel;
-
-    database = Database(args.gusConfigFile)
-    database.connect()
-
-    lineCount = 0
-    updateCount = 0
-    updateIndelCount = 0
-    skipCount = 0
-
-    with database.cursor("RealDictCursor") as selectCursor, \
-        database.cursor() as updateCursor:
-        try:
-            warning("Fetching", chrLabel, "variants", file=cupdater.lfh(), flush=True)
-            selectCursor.execute(selectSQL)
-            warning("DONE - Fetching", file=cupdater.lfh(), flush=True)
-
-            for record in selectCursor:
-                if args.debug and args.veryVerbose:
-                    warning(record, file=cupdater.lfh(), flush=True)
-
+def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
+    loader = initialize_loader(logFilePrefix)
+    if querySql is None:
+        querySql = SELECT_SQL
+    loader.log('Updating by query: ' + querySql, prefix="INFO")
+  
+    try: 
+        database = Database(args.gusConfigFile)
+        database.connect()
+        recordCount = 0
+        cname = 'update'
+        
+        chrm = chromosome
+        if chromosome is not None:
+            chrm = chromosome if 'chr' in xstr(chromosome) else 'chr' + xstr(chromosome)
+            cname += '_' + chrm
+            
+        with database.cursor() as updateCursor, database.named_cursor(cname, cursorFactory="RealDictCursor") as selectCursor:
+            selectCursor.itersize = args.commitAfter
+                        
+            loader.set_cursor(updateCursor)            
+            if chromosome is None:
+                loader.log("Executing query: " + querySql, prefix="INFO")
+                selectCursor.execute(querySql)
+            else:            
+                loader.log("Executing query: " + querySql.replace('%s', "'" + chrm + "'"), prefix="INFO")
+                selectCursor.execute(querySql, [chrm])
+                
+            for record in selectCursor:     
+                recordCount += 1
+                if args.debug:
+                    loader.log(("Record:", print_dict(record)), prefix="DEBUG")
+                    
                 if record['cadd_scores'] is not None:
-                    if args.debug and args.veryVerbose:
-                        warning("Skipping", record['metaseq_id'], file=cupdater.lfh(), flush=True)
-                    skipCount = skipCount + 1
+                    loader.increment_counter('skipped')
+                    if args.debug:
+                        loader.log(("Skipped", record['record_primary_key']), prefix="DEBUG")
                     continue
 
-                lineCount = lineCount + 1
-
-                metaseqId = record['metaseq_id']
-
-                chrm, position, refAllele, altAllele = metaseqId.split(':')
-
-                if len(refAllele) > 1 or len(altAllele) > 1: # only doing SNVs
-                    update_variant_record(record, cupdater, INDEL)
-                else:
-                    update_variant_record(record, cupdater, SNV)
-
-                if cupdater.get_total_update_count() % args.commitAfter == 0 and cupdater.buffered_variant_count() > 0:
+                loader.set_current_variant(record)
+                loader.buffer_variant()
+                
+                count = loader.get_count('update') + loader.get_count('not_matched')
+                if count % args.commitAfter == 0:
+                    loader.update_variants()         
+                    message = ' '.join(("Parsed", '{:,}'.format(recordCount), "variants",
+                                "- SNVS:", '{:,}'.format(loader.get_count('snv')),
+                                "- INDELs:", '{:,}'.format(loader.get_count('indel')),
+                                "- No match", '{:,}'.format(loader.get_count('not_matched')),
+                                "- Skipped", '{:,}'.format(loader.get_count('skipped'))))
+                    
+                    messagePrefix = "COMMITTED"
                     if args.commit:
-                        if args.debug:
-                            warning("Starting Update", file=cupdater.lfh(), flush=True)
-
-                        updateCursor.execute(cupdater.sql_buffer_str())
-
-                        if args.debug:
-                            warning("Done", file=cupdater.lfh(), flush=True)
-
-                        cupdater.clear_update_sql()
                         database.commit()
                     else:
                         database.rollback()
+                        messagePrefix = "ROLLING BACK"
+                    
+                    loader.log(message, prefix=messagePrefix)
 
-                    warning(metaseqId, "- Processed:", lineCount, "- SNVs:",
-                            cupdater.get_update_count(SNV), "- INDELS:", cupdater.get_update_count(INDEL),
-                            "- Skipped:", skipCount, " - Not Matched:", cupdater.get_not_matched_count(),
-                            file=cupdater.lfh(), flush=True)
-
-            if cupdater.buffered_variant_count() > 0:
-                updateCursor.execute(cupdater.sql_buffer_str())
-                if args.commit: # trailing
-                    database.commit()
-                else:
-                    database.rollback()
-
-            warning("DONE - Updated SNVs:", cupdater.get_update_count(SNV), "- Updated INDELS:",
-                    cupdater.get_update_count(INDEL), "- Skipped", skipCount,
-                    "- Not Matched:", cupdater.get_not_matched_count(), file=cupdater.lfh(), flush=True)
-            cupdater.close_lfh()
-
-        except Exception as e:
-            warning(e, file=cupdater.lfh(), flush=True)
+                    if args.test:
+                        break
+                    
+            # ======================= end iterate over records ==================================
+            
+            # clear out buffer
+            if (loader.update_buffer(sizeOnly=True)):
+                loader.update_variants() 
+            message = ' '.join(("Updated", '{:,}'.format(recordCount), "variants",
+                        "- SNVS:", '{:,}'.format(loader.get_count('snv')),
+                        "- INDELs:", '{:,}'.format(loader.get_count('indel')),
+                        "- No match", '{:,}'.format(loader.get_count('not_matched')),
+                        "- Skipped", '{:,}'.format(loader.get_count('skipped'))))
+            
+            messagePrefix = "COMMITTED"
             if args.commit:
                 database.commit()
             else:
                 database.rollback()
-            database.close()
-            raise
+                messagePrefix = "ROLLING BACK"
+            
+            loader.log(message, prefix=messagePrefix)
+            loader.log("DONE", prefix="INFO")
+            
+            if args.test:
+                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
+            
+    except DatabaseError as err:
+        loader.log("Problem updating variant: "  \
+            + loader.get_current_variant(toStr=True), prefix="ERROR")
+        raise(err)
+    except Exception as err:
+        loader.log("Problem parsing variant: " + loader.get_current_variant(toStr=True), prefix="ERROR")
+        # loader.log((recordCount, ":", print_dict(record)), prefix="LINE")
+        loader.log(str(err), prefix="ERROR")
+        raise(err)
 
-    
-    database.close()
+
+    finally:
+        database.close()
+        loader.close()
+
+
+def update_cadd_scores_by_vcf(): 
+    loader = initialize_loader(args.fileName.rsplit('.', 1)[0])
+    try: 
+        database = Database(args.gusConfigFile)
+        database.connect()
+        lineCount = 0
+        with database.cursor() as updateCursor, open(args.fileName, 'r') as fh:
+            loader.set_cursor(updateCursor)    
+
+            for line in fh:
+                lineCount += 1
+                entry = VcfEntryParser(line.rstrip()) 
+                loader.set_current_variant(entry.get_variant())
+                loader.buffer_variant()
+                
+                count = loader.get_count('update') + loader.get_count('not_matched')
+                if count % args.commitAfter == 0:
+                    loader.update_variants()         
+                    message = ' '.join(("Updated", '{:,}'.format(lineCount), "variants",
+                                "- SNVS:", '{:,}'.format(loader.get_count('snv')),
+                                "- INDELs:", '{:,}'.format(loader.get_count('indel')),
+                                "- No match", '{:,}'.format(loader.get_count('not_matched'))))
+                    
+                    messagePrefix = "COMMITTED"
+                    if args.commit:
+                        database.commit()
+                    else:
+                        database.rollback()
+                        messagePrefix = "ROLLING BACK"
+                    
+                    loader.log(message, prefix=messagePrefix)
+                    loader.log("Skipped " + '{:,}'.format(loader.get_count('skipped')), prefix="INFO")
+                
+                    if args.test:
+                        break
+
+            # ======================= end iterate over records ==================================
+           
+            # clear out buffer
+            if (loader.update_buffer(sizeOnly=True)):
+                loader.update_variants() 
+            
+            message = ' '.join(("Updated", '{:,}'.format(lineCount), "variants",
+                        "- SNVS:", '{:,}'.format(loader.get_count('snv')),
+                        "- INDELs:", '{:,}'.format(loader.get_count('indel')),
+                        "- No match", '{:,}'.format(loader.get_count('not_matched'))))
+            
+            messagePrefix = "COMMITTED"
+            if args.commit:
+                database.commit()
+            else:
+                database.rollback()
+                messagePrefix = "ROLLING BACK"
+            
+            loader.log(message, prefix=messagePrefix)
+            loader.log("Skipped " + '{:,}'.format(loader.get_count('skipped')), prefix="INFO")
+            loader.log("DONE", prefix="INFO")
+            
+            if args.test:
+                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")             
+            
+    except DatabaseError as err:
+        loader.log("Problem updating variant: "  \
+            + loader.get_current_variant(toStr=True), prefix="ERROR")
+        raise(err)
+    except Exception as err:
+        loader.log("Problem parsing variant: " + loader.get_current_variant(toStr=True), prefix="ERROR")
+        loader.log((lineCount, ":", line), prefix="LINE")
+        loader.log(str(err), prefix="ERROR")
+        raise(err)
+    finally:
+        database.close()
+        loader.close()
+
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="update CADD scores in DB specified chromosome")
-    parser.add_argument('-d', '--databaseDir', help="directory containg CADD database +tabindex files", required=True)
-    parser.add_argument('--vcfFile', help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects full path to a VCF file")
-    parser.add_argument('-c', '--chr', help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified", default='all')
+    parser = argparse.ArgumentParser(description="update CADD scores in DB specified chromosome", allow_abbrev=False)
+    parser.add_argument('-d', '--databaseDir', required=True,
+                        help="directory containg CADD database +tabindex files")
+    parser.add_argument('--vcfFile', 
+                        help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects full path to a VCF file")
+    parser.add_argument('--chr', default='all',
+                        help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified")
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
     parser.add_argument('--logFilePath', help='generate formulaic log files and store in the specified path')
-    parser.add_argument('--logFile', help='specify full path to log file')
+    parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
+    parser.add_argument('-s', '--seqrepoProxyPath', required=True,
+                        help="full path to local SeqRepo file repository")
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--veryVerbose', action='store_true')
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--skipExisting', action='store_true')
     parser.add_argument('--gusConfigFile',
                         help="GUS config file. If not provided, assumes default: $GUS_HOME/conf/gus.config")
     parser.add_argument('--commit', action='store_true')
     args = parser.parse_args()
     
-    INDEL = True
-    SNV = False
  
     if args.vcfFile:
-        update_variant_records_from_vcf()
+        update_cadd_scores_by_vcf()
 
     else:
-        chrList = args.chr.split(',') if args.chr != 'all' \
-          else [c.value for c in Human]
-
-        random.shuffle(chrList) # so that not all large chrms are done at once if all is selected
+        chrList = args.chr.split(',') if not args.chr.startswith('all') \
+            else [c.value for c in Human]
 
         if len(chrList) == 1:
-            update_variant_records(chrList[0])
+            update_cadd_scores_by_query('db_chr' + xstr(chrList[0]), chromosome=xstr(chrList[0]))
 
         else:
+            random.shuffle(chrList) # so that not all large chrms are done at once if all is selected
             with ProcessPoolExecutor(args.maxWorkers) as executor:
-                for c in chrList:
-                    warning("Create and start thread for chromosome:", xstr(c))
-                    executor.submit(update_variant_records, c)
+                futureUpdate = {executor.submit(update_cadd_scores_by_query, logFilePrefix='db_chr' + xstr(c),  chromosome=xstr(c)) : c for c in chrList}
+                for future in as_completed(futureUpdate): # this should allow catching errors 
+                    try:
+                        future.result()
+                    except Exception as err:
+                        raise(err)        
 
 
     print("SUCCESS", file=sys.stdout)

@@ -172,6 +172,10 @@ class VariantLoader(object):
         self._chromosome_map = chrmMap
 
 
+    def get_current_variant(self, toStr=False):
+        return print_dict(self._current_variant) if toStr else self._current_variant
+    
+
     def get_current_variant_id(self):
         if self._debug:
             self.log(print_dict(self._current_variant, pretty=True), prefix="DEBUG")
@@ -244,7 +248,7 @@ class VariantLoader(object):
         
     def update_buffer(self, sizeOnly=False):
         """! returns update buffer """
-        return self._update_buffer.tell() if sizeOnly else self._update_buffer()
+        return self._update_buffer.tell() if sizeOnly else self._update_buffer
     
     
     def copy_buffer(self, sizeOnly=False):
@@ -253,6 +257,7 @@ class VariantLoader(object):
         @returns copy buffer or buffer size """
         
         return self._copy_buffer.tell() if sizeOnly else self._copy_buffer
+    
     
     def add_copy_str(self, copyStr):
         """! write a copy string to the copy buffer """
@@ -322,10 +327,13 @@ class VariantLoader(object):
         self._counters[counter] = self._counters[counter] + 1   
         
     
-    def _initialize_counters(self):
+    def _initialize_counters(self, additionalCounters = None):
         """! initialize counters"""
         self._counters = { 'line' : 0, 'variant': 0, 'skipped': 0, 'duplicates': 0, 'update': 0}
-            
+        if additionalCounters is not None:
+            for ac in additionalCounters:
+                self._counters[ac] = 0
+
                 
     def cursor(self):
         """! @returns database cursor """    
@@ -414,6 +422,7 @@ class VariantLoader(object):
         try:
             self._update_buffer.seek(0)
             self._cursor.execute(self._update_buffer.getvalue())
+            self.reset_update_buffer()
         except Exception as e:
             err = raise_pg_exception(e, returnError=True)
             self.log(str(err), prefix="ERROR")
