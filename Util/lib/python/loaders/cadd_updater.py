@@ -79,10 +79,10 @@ class CADDUpdater(VariantLoader):
             values = recordPK.split(':')
             chrm = 'chr' + xstr(values[0])
             
-        updateSql = "UPDATE AnnotatedVDB.Variant" + NBSP \
+        updateSql = "UPDATE AnnotatedVDB.Variant_" + chrm + NBSP \
             + "SET cadd_scores = '" + json.dumps(evidence) + "'" + NBSP \
-            + "WHERE record_primary_key = '" + recordPK + "'" + NBSP \
-            + "AND chromosome = '" + chrm + "'"
+            + "WHERE record_primary_key = '" + recordPK + "'" # + NBSP \
+            # + "AND chromosome = '" + chrm + "'"
             
         if self._debug:
             self.log("UpdateSQL: " + updateSql, prefix="DEBUG")    

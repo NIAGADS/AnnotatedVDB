@@ -39,7 +39,7 @@ def initialize_loader(logFilePrefix):
     
     try:
         loader = VEPVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
-        
+                
         loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
         loader.set_algorithm_invocation('load_vep_result', xstr(logFilePrefix) + '|' + print_args(args, False))
@@ -50,6 +50,9 @@ def initialize_loader(logFilePrefix):
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
         loader.set_chromosome_map(chrmMap)
+        
+        if loader.is_adsp():
+            loader.initialize_variant_validator(args.gusConfigFile)
         
         if args.skipExisting:
             loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
@@ -131,8 +134,7 @@ def load_annotation(fileName, logFilePrefix):
                             database.commit()
                         else:
                             database.rollback()
-                            messagePrefix = "PARSED"
-                            message += " -- rolling back"
+                            messagePrefix = "ROLLING BACK"
 
                         if lineCount % args.logAfter == 0:
                             message += "; up to = " + loader.get_current_variant_id()
@@ -231,8 +233,9 @@ def validate_args():
 
 def get_input_file_name(chrm):
     """ find the file that matches the chromosome & specified extension """  
-    fileName = glob.glob('*chr' + xstr(chr) + args.extension, root_dir=args.dir)   # *chr b/c there may be a prefix
-    return path.join(args.dir, fileName)
+    pattern = path.join(args.dir, '*chr' + xstr(chrm) + args.extension)
+    fileName = glob.glob(pattern)   # *chr b/c there may be a prefix
+    return path.join(args.dir, fileName[0])
 
 
 if __name__ == "__main__":

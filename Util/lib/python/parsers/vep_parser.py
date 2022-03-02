@@ -31,8 +31,8 @@
 # pylint: disable=line-too-long,invalid-name,no-self-use
 
 from operator import itemgetter
-
-from GenomicsDBData.Util.utils import warning, to_numeric, die, xstr
+from copy import deepcopy
+from GenomicsDBData.Util.utils import warning, xstr
 from GenomicsDBData.Util.list_utils import qw
 from GenomicsDBData.Util.auto_viv_dict import AutoVivificationDict
 
@@ -57,7 +57,7 @@ class VepJsonParser(object):
 
     def __init__(self, rankingFileName, rankConsequencesOnLoad=False, verbose=False):
         self._verbose = verbose
-        self._consequenceParser = ConsequenceParser(rankingFileName, rankOnLoad=rankConsequencesOnLoad, verbose=verbose)
+        self._consequence_parser = ConsequenceParser(rankingFileName, rankOnLoad=rankConsequencesOnLoad, verbose=verbose)
         self._annotation = None
         self._rankedConsequences = {}
 
@@ -70,10 +70,10 @@ class VepJsonParser(object):
         @returns rank
         """
         try: 
-            return self._consequenceParser.find_matching_consequence(terms, failOnMissing=True)
+            return self._consequence_parser.find_matching_consequence(terms, failOnMissing=True)
         except IndexError as err:
             self.log(str(err) + '-- ADDING consequence and re-ranking', prefix="WARNING")
-            return self._consequenceParser.find_matching_consequence(terms)
+            return self._consequence_parser.find_matching_consequence(terms)
 
 
     def assign_adsp_consequence_rank(self, conseqDict):
@@ -86,7 +86,7 @@ class VepJsonParser(object):
         terms = conseqDict['consequence_terms']
         conseq = ','.join(terms)
         if conseq not in self._rankedConsequences:         
-            value = {'rank' : self.__find_matching_consequence(terms),
+            value = {'rank' : self.__find_matching_term(terms),
                      'consequence_is_coding': is_coding_consequence(terms)}
             self._rankedConsequences[conseq] = value
 
@@ -128,15 +128,19 @@ class VepJsonParser(object):
     def get_added_conseq_summary(self):
         """! @returns summary of added consequences from the consequence parser """
         summary = "No new consequences added"
-        if self._consequenceParser.new_consequences_added():
-            summary = ' '.join(("Added", xstr(self._consequenceParser.get_new_conseq_count()),
-                       "new consequences:", '[' + '; '.join(self._consequenceParser.get_added_consequences()) +']'))
+        if self._consequence_parser.new_consequences_added():
+            summary = ' '.join(("Added", xstr(self._consequence_parser.get_new_conseq_count()),
+                       "new consequences:", '[' + '; '.join(self._consequence_parser.get_added_consequences()) +']'))
         return summary
         
     def get_conseq_rank(self, conseq):
         """! @returns value from consequence rank map for the specified
         consequence """
-        return self._consequenceParser.get_consequence_rank(conseq)
+        return self._consequence_parser.get_consequence_rank(conseq)
+
+
+    def get_consequence_parser(self):
+        return self._consequence_parser
 
 
     def __adsp_rank_consequences(self, conseqType):
@@ -178,7 +182,6 @@ class VepJsonParser(object):
         rsId different from current rsId; use matchingVariantId to ensure
         extracting the correct frequency (e.g. overlapping indels & snvs)
         """
-
         self.__verify_annotation()
         if 'colocated_variants' not in self._annotation:
             return None
@@ -202,8 +205,9 @@ class VepJsonParser(object):
                 # based on experience, when this happens, involves multiple refsnps mapped to location,
                 # so all frequencies should be equal
                 # let's just print a warning
-                inputVariant = self._annotation['input'].replace('\t', ' ')
-                warning("WARNING", "INDEL " + inputVariant + "mapped to multiple refSNPs/frequencies based on location not alleles")
+                inputVariant = self._annotation['input']['id']
+                if self._verbose:
+                    warning("WARNING", "Variant " + inputVariant + " mapped to multiple refSNPs/frequencies based on location not alleles")
             # else:
             return frequencies # which may be None
         
@@ -274,7 +278,7 @@ class VepJsonParser(object):
 
     def get_annotation(self, deepCopy=False):
         """ return updated annotation """
-        return deepcopy(self.annotation) if deepCopy else self._annotation
+        return deepcopy(self._annotation) if deepCopy else self._annotation
     
     
     def __get_allele_consequences(self, allele, ctypeKey):

@@ -63,16 +63,17 @@ class VcfEntryParser(object):
 
         # now unpack the info field and save as its own
         try:
-            infoStr = result['info'].replace('\\x2c', ',') # \x escape causes JSON parsing issues
-            infoStr = infoStr.replace('\\x59', '/') # \x59 is a semi-colon, but b/c its a delimiter can't use
-            infoStr = infoStr.replace('#', ':') # b/c using pound sign as COPY delimiter
-            info = dict(item.split('=',1) if '=' in item else [item, True] for item in infoStr.split(';'))
+            if 'info' in result:
+                infoStr = result['info'].replace('\\x2c', ',') # \x escape causes JSON parsing issues
+                infoStr = infoStr.replace('\\x59', '/') # \x59 is a semi-colon, but b/c its a delimiter can't use
+                infoStr = infoStr.replace('#', ':') # b/c using pound sign as COPY delimiter
+                info = dict(item.split('=',1) if '=' in item else [item, True] for item in infoStr.split(';'))
+                result['info'] = convert_str2numeric_values(info)
+            else:
+                result['info'] = {}
         except Exception as err:
             warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
             raise err
-        
-        result['info'] = convert_str2numeric_values(info)
-
         return result
 
 
@@ -93,24 +94,21 @@ class VcfEntryParser(object):
         @returns attributes as a simple namespace so they can be accessed in dot notation"""
 
         attributes = {}
-        if dbSNP:
-            chrom = xstr(self.get('chrom'))
-            if chrom == 'MT':
-                chrom = 'M'
-            altAlleles = self.get('alt').split(',')
-            variant =  {
-                'id' : self.get('id'),
-                'ref_snp_id' : self.get_refsnp(),
-                'ref_allele' : self.get('ref'),
-                'alt_alleles' : altAlleles,
-                'is_multi_allelic' : len(altAlleles) > 1,
-                'chromosome' : xstr(chrom),
-                'position' : int(self.get('pos')),
-                'rs_position' : self.get_info('RSPOS'),
-            }
-        else:
-            err = NotImplementedError('VcfEntryParser.get_variant not implemented for non-dbSNP VCF variants')
-            raise err
+
+        chrom = xstr(self.get('chrom'))
+        if chrom == 'MT':
+            chrom = 'M'
+        altAlleles = self.get('alt').split(',')
+        variant =  {
+            'id' : self.get('id'),
+            'ref_snp_id' : self.get_refsnp(),
+            'ref_allele' : self.get('ref'),
+            'alt_alleles' : altAlleles,
+            'is_multi_allelic' : len(altAlleles) > 1,
+            'chromosome' : xstr(chrom),
+            'position' : int(self.get('pos')),
+            'rs_position' : self.get_info('RSPOS') 
+        }
         
         return SimpleNamespace(**variant) if namespace else variant
     
@@ -144,6 +142,8 @@ class VcfEntryParser(object):
     def get_info(self, key):
         """! get the INFO value associated with the key """
         self.__verify_entry()
+        if 'info' not in self.__entry:
+            return None
         if key in self.__entry['info']:
             return self.__entry['info'][key]
         else:

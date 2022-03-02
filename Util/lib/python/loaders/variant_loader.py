@@ -65,7 +65,7 @@ ALLOWABLE_COPY_FIELDS = ["chromosome", "record_primary_key", "position",
 
 REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq_id", "bin_index", "row_algorithm_id"]
 
-DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=True)
+DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
 class VariantLoader(object):
     """! functions for loading variants -- use child classes for specific datasources / result types """
@@ -127,17 +127,18 @@ class VariantLoader(object):
         
     
     def initialize_variant_validator(self, gusConfigFile):
+        self.log("Initializing variant validator for duplicate checks", prefix="INFO")
         self._variant_validator = VariantRecord(gusConfigFile, self._verbose, self._debug)
     
     
     def set_skip_existing(self, skipDuplicates, gusConfigFile=None):
         self._skip_existing = skipDuplicates
-        if skipDuplicates:
+        if skipDuplicates and self._variant_validator is None:
             self.initialize_variant_validator(gusConfigFile)
             
             
-    def is_duplicate(self, variantId, idType, chromosome=None):
-        return self._variant_validator.exists(variantId, idType, chromosome)
+    def is_duplicate(self, variantId, idType, chromosome=None, returnPK=False):
+        return self._variant_validator.exists(variantId, idType, chromosome=chromosome, returnPK=returnPK)
     
     
     def skip_existing(self):
@@ -419,15 +420,16 @@ class VariantLoader(object):
     def update_variants(self):
         """! execute update buffer
         """
-        try:
-            self._update_buffer.seek(0)
-            self._cursor.execute(self._update_buffer.getvalue())
-            self.reset_update_buffer()
-        except Exception as e:
-            err = raise_pg_exception(e, returnError=True)
-            self.log(str(err), prefix="ERROR")
-            raise err
-        
+        if (self.update_buffer(sizeOnly=True) > 0):
+            try:
+                self._update_buffer.seek(0)
+                self._cursor.execute(self._update_buffer.getvalue())
+                self.reset_update_buffer()
+            except Exception as e:
+                err = raise_pg_exception(e, returnError=True)
+                self.log(str(err), prefix="ERROR")
+                raise err
+            
 
     def load_variants(self):
         """! perform copy operation to insert variants into the DB """ 

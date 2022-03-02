@@ -40,7 +40,8 @@ class VariantPKGenerator(object):
 
     According to the following rules:
     - for SNV's and short INDEX (total length alleles <= maxSequenceLength):
-      + S:P:D:I, with restriction that deletion (reference) length should not substituted for the sequence
+      + VCF S:P:D:I, with restriction that deletion (reference) length should not substituted for the sequence
+      + 1-based positions
     - for large INDELS/SVs (total length alleles > maxSequenceLength)
       + S:P:VRS_CI
     - if an external id is provided (e.g., refSNP or ss) it is provided at the end so that PKs are as follows:

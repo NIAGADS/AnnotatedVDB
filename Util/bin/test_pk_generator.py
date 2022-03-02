@@ -18,6 +18,8 @@ REFSQ_CHR1="refseq:NC_000001.11"
 GENOME_BUILD="GRCh38"
 
 
+
+
 def validate(metaseqId, generator):
     ''' validate against NCBI '''
     ncbiGA4GR_VR_endpoint = path.join(NCBI_SERVICES_URL, GA4GHR_VR_ENDPOINT)
@@ -30,9 +32,8 @@ def validate(metaseqId, generator):
     # gnomad = generator.translate_vrs(alleleDict, 'gnomad')
     # warning("reverse translation", gnomad.replace('-', ':'))
 
-
     spdi = generator.translate_vrs(alleleDict, 'spdi')
-    warning(spdi)
+    warning("INFO", "SPDI - ", spdi[0])
     
 
         
@@ -50,12 +51,22 @@ def run():
 
     
     generator = VariantPKGenerator(GENOME_BUILD, args.proxyPath, debug=args.debug)
-
+    ngenerator = VariantPKGenerator(GENOME_BUILD, args.proxyPath, debug=args.debug, normalize=True) 
     for metaseqId, refSnp in variants.items():
-        warning(refSnp, '-', truncate(metaseqId, 30))
+        warning("\n")
+        warning("# ============= AS IS =========== ")
         pk = generator.generate_primary_key(metaseqId, refSnp)
-        warning("PK", pk)
+        warning("INFO", "PK", pk)
         validate(metaseqId, generator)
+        warning("# ============= NORMALIZED =========== ")
+        pk = ngenerator.generate_primary_key(metaseqId, refSnp)
+        warning("INFO", "PK", pk)
+        validate(metaseqId, ngenerator)
+
+  
+    
+    
+    
      
 
 

@@ -164,11 +164,9 @@ class VariantRecord(object):
             raise_pg_exception(err)
             
         return None
-        
-        
     
         
-    def exists(self, variantId, idType, chromosome=None):
+    def exists(self, variantId, idType, chromosome=None, returnPK=False):
         """! check if against the AnnotatedVDB to see if a variant with the specified id is already present
 
             @param variantId             variant id to lookup
@@ -194,9 +192,13 @@ class VariantRecord(object):
                 params.append(chromosome)
             
             cursor.execute(sql, tuple(params))
-            for record in cursor:
-                return True # if there is a hit, the variant is already in the database
-
+            result = cursor.fetchone()
+            
+            if result is None:
+                return False # variant not in db
+            
+            return result[0] if returnPK else True
+      
         except Exception as err:
             raise_pg_exception(err)
 
