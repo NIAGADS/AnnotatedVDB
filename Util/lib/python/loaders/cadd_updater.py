@@ -17,6 +17,10 @@ CADD_INDEL_FILE = "gnomad.genomes.r3.0.indel.tsv.gz"
 CADD_SNV_FILE = "whole_genome_SNVs.tsv.gz"
 NBSP = " " # for multi-line sql
 
+CADD_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET cadd_scores = d.cadd_scores 
+  FROM (VALUES %s) AS d(record_primary_key, chromosome, cadd_scores)
+  WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
+
 class CADDUpdater(VariantLoader):
     """ utils for slicing CADD tbx database """
 
@@ -27,6 +31,7 @@ class CADDUpdater(VariantLoader):
         self.__indel = self.__connect(CADD_INDEL_FILE)     
         self.__chromosome = None
         self._initialize_counters(['snv', 'indel', 'not_matched'])
+        self.set_update_sql(CADD_UPDATE_SQL)
         self.log((type(self).__name__, "initialized"), prefix="INFO")
 
 
@@ -71,6 +76,18 @@ class CADDUpdater(VariantLoader):
         return self.__indel
 
 
+    def buffer_update_values(self, recordPK, evidence):
+        """ save update values to value list """ 
+        if self.__chromosome is not None:
+            chrm = self.__chromosome
+        else:
+            values = recordPK.split(':')
+            chrm = 'chr' + xstr(values[0])
+        
+        values = (recordPK, chrm, json.dumps(evidence))
+        self._update_buffer.append(values)
+
+
     def buffer_update_statement(self, recordPK, evidence):
         """ generate the update statement and add to buffer """
         if self.__chromosome is not None:
@@ -79,10 +96,10 @@ class CADDUpdater(VariantLoader):
             values = recordPK.split(':')
             chrm = 'chr' + xstr(values[0])
             
-        updateSql = "UPDATE AnnotatedVDB.Variant_" + chrm + NBSP \
+        updateSql = "UPDATE AnnotatedVDB.Variant" + NBSP \
             + "SET cadd_scores = '" + json.dumps(evidence) + "'" + NBSP \
-            + "WHERE record_primary_key = '" + recordPK + "'" # + NBSP \
-            # + "AND chromosome = '" + chrm + "'"
+            + "WHERE record_primary_key = '" + recordPK + "'"  + NBSP \
+            + "AND chromosome = '" + chrm + "'"
             
         if self._debug:
             self.log("UpdateSQL: " + updateSql, prefix="DEBUG")    
@@ -142,7 +159,8 @@ class CADDUpdater(VariantLoader):
 
                 if ref in matchedAlleles and alt in matchedAlleles:
                     evidence = {'CADD_raw_score': float(match[4]), 'CADD_phred': float(match[5])}
-                    self.buffer_update_statement(self._current_variant.record_primary_key, evidence)  
+                    self.buffer_update_values(self._current_variant.record_primary_key, evidence)
+                    # buffer_update_statement(self._current_variant.record_primary_key, evidence)  
                     self.increment_update_count(isIndel)
                     matched = True
                     
@@ -152,7 +170,8 @@ class CADDUpdater(VariantLoader):
                     break # no need to look for more matches
 
             if not matched:
-                self.buffer_update_statement(self._current_variant.record_primary_key, "{}")  
+                self.buffer_update_values(self._current_variant.record_primary_key, {})  
+                # self.buffer_update_statement(self._current_variant.record_primary_key, {})  
                 self.increment_counter('not_matched')
                 if self._debug:
                     self.log((self._current_variant.metaseq_id, "not matched / loading placeholder"), prefix="DEBUG")
