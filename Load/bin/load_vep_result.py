@@ -25,6 +25,10 @@ from AnnotatedVDB.Util.loaders import VEPVariantLoader
 from AnnotatedVDB.Util.parsers import ChromosomeMap
 from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
+# ADSP_VARIANT_UPDATE_SQL = "UPDATE AnnotatedVDB.Variant SET is_adsp_variant = true WHERE record_primary_key = %s and chromosome = %s"
+ADSP_VARIANT_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET is_adsp_variant = true 
+  FROM (VALUES %s) AS d(record_primary_key, chromosome)
+  WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
 
 def initialize_loader(logFilePrefix):
     """! initialize loader """
@@ -53,6 +57,7 @@ def initialize_loader(logFilePrefix):
         
         if loader.is_adsp():
             loader.initialize_variant_validator(args.gusConfigFile)
+            loader.set_update_sql(ADSP_VARIANT_UPDATE_SQL)
         
         if args.skipExisting:
             loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
@@ -128,7 +133,7 @@ def load_annotation(fileName, logFilePrefix):
                         if args.datasource.lower() == 'adsp':
                             loader.update_variants()
 
-                        message = '{:,}'.format(loader.get_count('variant')) + " variants"
+                        message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
                         messagePrefix = "COMMITTED"
                         if args.commit:
                             database.commit()
@@ -136,23 +141,21 @@ def load_annotation(fileName, logFilePrefix):
                             database.rollback()
                             messagePrefix = "ROLLING BACK"
 
-                        if lineCount % args.logAfter == 0:
+                        if lineCount % args.logAfter == 0:   
+                            if loader.get_count('update') > 0:
+                                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
+                            
+                            if loader.get_count('duplicates') > 0:
+                                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
+                                
                             message += "; up to = " + loader.get_current_variant_id()
                             loader.log(message, prefix=messagePrefix)
                             
-                            if loader.get_count('update') > 0:
-                                message = '{:,}'.format(loader.get_count('update')) + " variants"
-                                loader.log(message, prefix="UPDATED")
-                            
-                            if loader.get_count('duplicates'):
-                                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-                                loader.log(message, prefix="SKIPPED")
-
                             if args.debug:
                                 tend = datetime.now()
                                 loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
                                 loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
-
+                   
                         if args.test:
                             break
 
@@ -161,25 +164,23 @@ def load_annotation(fileName, logFilePrefix):
             # commit anything left in the copy buffer
             loader.load_variants();
 
-            message = '{:,}'.format(loader.get_count('variant')) + " variants"
+            message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
             messagePrefix = "COMMITTED"
             if args.commit:
                 database.commit()
             else:
                 database.rollback()
-                messagePrefix = "PARSED"
-                message += " -- rolling back"
-            message += "; up to = " + loader.get_current_variant_id()
-            loader.log(message, prefix=messagePrefix)
+                messagePrefix = "ROLLING BACK"  
             
             if loader.get_count('update') > 0:
-                message = '{:,}'.format(loader.get_count('update')) + " variants"
-                loader.log(message, prefix="UPDATED")
+                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
                             
             if loader.get_count('duplicates') > 0:
-                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-                loader.log(message, prefix="SKIPPED")
+                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
                 
+            message += "; up to = " + loader.get_current_variant_id()  
+            loader.log(message, prefix=messagePrefix)
+                  
             loader.log("DONE", prefix="INFO")
             
             # summarize new consequences

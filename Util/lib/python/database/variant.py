@@ -32,7 +32,11 @@ VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']
 
 LOOKUP_SQL="SELECT record_primary_key, metaseq_id, ref_snp_id FROM AnnotatedVDB.Variant WHERE"
 EXISTS_SQL="SELECT record_primary_key FROM AnnotatedVDB.Variant WHERE"
-METASEQ_LOOKUP_SQL="LEFT(metaseq_id, 50) = LEFT(%s, 50) AND metaseq_id = %s AND chromosome = 'chr' || split_part(%s, ':', 1)" 
+
+METASEQ_EXISTS_SQL="SELECT AnnotatedVDB.find_variant_by_metaseq_id_variations(%s) AS record_primary_key"
+METASEQ_LOOKUP_SQL="""record_primary_key IN (SELECT AnnotatedVDB.find_variant_by_metaseq_id_variations(%s))
+AND chromosome = 'chr' || split_part(%s, ':', 1)"""
+
 REFSNP_LOOKUP_SQL="ref_snp_id = %s"
 PRIMARY_KEY_LOOKUP_SQL="record_primary_key = %s AND chromosome = 'chr' || split_part(%s, ':', 1)"
 
@@ -130,7 +134,7 @@ class VariantRecord(object):
         return self.__cursors[cursorKey]
     
     
-    def has_attr(self, field, variantId, idType, returnVal=True):
+    def has_attr(self, field, variantId, idType, chromosome=None, returnVal=True):
         """! checks to see the variant has a value for that field
         usually used before an update so returning PK incase lookup is not the PK
         
@@ -152,9 +156,14 @@ class VariantRecord(object):
             for i in range(0, numBindParams):
                 params.append(variantId)
             
+            if chromosome is not None: # for refsnp lookups
+                sql += ' AND chromosome = %s'
+                chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
+                params.append(chrm)
+                
             cursor.execute(sql, tuple(params))
             result = cursor.fetchone()
-            
+                     
             if result is None:
                 return None # variant not in db
             
@@ -180,7 +189,7 @@ class VariantRecord(object):
         try:
             cursorKey = 'EXISTS_' + idType
             cursor = self.get_cursor('EXISTS', initializeIfMissing=True, realDict=False)
-            sql = EXISTS_SQL + ' ' + LOOKUP_SQL[idType]
+            sql = METASEQ_EXISTS_SQL if idType == 'METASEQ' else EXISTS_SQL + ' ' + LOOKUP_SQL[idType]
 
             numBindParams = sql.count('%s')
             params = []
@@ -189,7 +198,8 @@ class VariantRecord(object):
             
             if chromosome is not None: # for refsnp lookups
                 sql += ' AND chromosome = %s'
-                params.append(chromosome)
+                chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
+                params.append(chrm)
             
             cursor.execute(sql, tuple(params))
             result = cursor.fetchone()

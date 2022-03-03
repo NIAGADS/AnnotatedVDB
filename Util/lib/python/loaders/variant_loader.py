@@ -43,6 +43,8 @@ import json
 from copy import deepcopy
 from io import StringIO
 
+from psycopg2.extras import execute_values
+
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, to_numeric, deep_update
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
 from GenomicsDBData.Util.postgres_dbi import raise_pg_exception
@@ -104,6 +106,7 @@ class VariantLoader(object):
         self._copy_sql = None
         
         self._update_buffer = None
+        self._update_sql = None
         
         self._fail_at_variant = None
         self._variant_validator = None
@@ -136,6 +139,10 @@ class VariantLoader(object):
         if skipDuplicates and self._variant_validator is None:
             self.initialize_variant_validator(gusConfigFile)
             
+            
+    def has_attribute(self, field, variantId, idType, chromosome=None, returnVal=True):
+        return self._variant_validator.has_attr(field, variantId, idType, chromosome, returnVal)            
+    
             
     def is_duplicate(self, variantId, idType, chromosome=None, returnPK=False):
         return self._variant_validator.exists(variantId, idType, chromosome=chromosome, returnPK=returnPK)
@@ -200,6 +207,10 @@ class VariantLoader(object):
             raise err
 
 
+    def set_update_sql(self, sql):
+        self._update_sql = sql
+        
+
     def initialize_copy_sql(self, copyFields=None):
         self._verify_copy_fields(copyFields)   
         
@@ -218,7 +229,8 @@ class VariantLoader(object):
 
     def close_update_buffer(self):
         """! close the update buffer """
-        self._update_buffer.close()
+        # self._update_buffer.close()
+        del self._update_buffer
         
         
     def close_copy_buffer(self):
@@ -233,7 +245,8 @@ class VariantLoader(object):
         
         
     def reset_update_buffer(self):
-        self.close_update_buffer()
+        # self.close_update_buffer()
+        del self._update_buffer # garbage collect b/c may be large
         self.initialize_update_buffer()
     
     
@@ -244,12 +257,14 @@ class VariantLoader(object):
         
     def initialize_update_buffer(self):
         """! initialize the update buffer (io.StringIO) """
-        self._update_buffer = StringIO()
+        # self._update_buffer = StringIO()
+        self._update_buffer = []
         
         
     def update_buffer(self, sizeOnly=False):
         """! returns update buffer """
-        return self._update_buffer.tell() if sizeOnly else self._update_buffer
+        # return self._update_buffer.tell() if sizeOnly else self._update_buffer
+        return len(self._update_buffer) if sizeOnly else self._update_buffer
     
     
     def copy_buffer(self, sizeOnly=False):
@@ -420,10 +435,16 @@ class VariantLoader(object):
     def update_variants(self):
         """! execute update buffer
         """
+        if self._update_sql is None:
+            raise ValueError("must set update sql (VariantLoader.set_update_sql(sql) before attempting update")
+        
         if (self.update_buffer(sizeOnly=True) > 0):
             try:
-                self._update_buffer.seek(0)
-                self._cursor.execute(self._update_buffer.getvalue())
+                #self._update_buffer.seek(0)
+                #self._cursor.execute(self._update_buffer.getvalue())
+                if self._debug:
+                    self.log(("Update buffer (head):", self._update_buffer[:10]), prefix="DEBUG")
+                execute_values(self._cursor, self._update_sql, self._update_buffer, page_size=2**10)
                 self.reset_update_buffer()
             except Exception as e:
                 err = raise_pg_exception(e, returnError=True)

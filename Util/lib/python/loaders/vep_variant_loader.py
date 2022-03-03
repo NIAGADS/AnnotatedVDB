@@ -143,20 +143,19 @@ class VEPVariantLoader(VariantLoader):
     def __add_adsp_update_statement(self, recordPK, chromosome):
         """ add update is_adsp_variant to update buffer """
         chrm = 'chr' + xstr(chromosome)
-        updateStr = "UPDATE AnnotatedVDB.Variant SET " \
-            + "is_adsp_variant = true WHERE record_primary_key = '"  + recordPK + "' " \
-            + "AND chromosome = '" + chrm + "'" # incl chromosome so it uses an index
-        self._update_buffer.write(updateStr + ';')
+        values = (recordPK, chrm)
+        self._update_buffer.append(values)
+        # updateStr = "UPDATE AnnotatedVDB.Variant SET " \
+        #    + "is_adsp_variant = true WHERE record_primary_key = '"  + recordPK + "' " \
+        #    + "AND chromosome = '" + chrm + "'" # incl chromosome so it uses an index
+        # self._update_buffer.write(updateStr + ';')
         
     
-    def     __parse_alt_alleles(self, vcfEntry):
+    def __parse_alt_alleles(self, vcfEntry):
         """! iterate over alleles and calculate values to load
             add to copy buffer
             @param vcfEntry             the VCF entry for the current variant
         """
-        
-        if self._debug:
-            self.log('Entering ' + type(self).__name__ + '.' + 'parse_alt_alleles', prefix="DEBUG")
         
         # extract result frequencies    
         frequencies = self.__get_result_frequencies()
@@ -177,13 +176,20 @@ class VEPVariantLoader(VariantLoader):
                 if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
                     self.increment_counter('duplicates')
                     continue
-                         
+
             if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
-                recordPK = self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ', returnPK=True)
-                # TODO: have duplicate check return the recordPK so an update can be done
-                if recordPK:
-                    self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
-                    self.increment_counter('update')
+                lookupResult = self.has_attribute('is_adsp_variant', annotator.get_metaseq_id(), 'METASEQ', returnVal=True)
+                if lookupResult is not None: # not in db
+                    recordPK = lookupResult[0]
+                    isAdspVariant = lookupResult[1]
+                    if recordPK and isAdspVariant is None:
+                        self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
+                        self.increment_counter('update')
+                    else:
+                        self.increment_counter('skipped') # already flagged
+                        self.increment_counter('duplicates')
+                        if self._debug:
+                            self.log(("Is Known ADSP Variant?", annotator.get_metaseq_id(), recordPK, isAdspVariant), prefix="DEBUG")
                     continue
             
             normRef, normAlt = annotator.get_normalized_alleles()
@@ -235,11 +241,7 @@ class VEPVariantLoader(VariantLoader):
             err = UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants");
             self.log(str(err), prefix="ERROR")
             raise err
-            
-        if self._debug:
-            self.log('Entering ' + type(self).__name__ + '.' + 'parse_result', prefix="DEBUG")
-            self.log(('Resume?', self.resume_load()), prefix="DEBUG")
-            
+                    
         if self.resume_load() is False and self._resume_after_variant is None:
             err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
             self.log(str(err), prefix="ERROR")
