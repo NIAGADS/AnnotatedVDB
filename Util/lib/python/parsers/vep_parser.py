@@ -72,7 +72,6 @@ class VepJsonParser(object):
         try: 
             return self._consequence_parser.find_matching_consequence(terms, failOnMissing=True)
         except IndexError as err:
-            self.log(str(err) + '-- ADDING consequence and re-ranking', prefix="WARNING")
             return self._consequence_parser.find_matching_consequence(terms)
 
 
