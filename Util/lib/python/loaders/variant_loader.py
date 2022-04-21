@@ -69,6 +69,8 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
+JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation"]
+
 class VariantLoader(object):
     """! functions for loading variants -- use child classes for specific datasources / result types """
     
@@ -105,12 +107,14 @@ class VariantLoader(object):
         self._copy_fields = None
         self._copy_sql = None
         
+        self._batch_update = False
         self._update_buffer = None
         self._update_sql = None
         
         self._fail_at_variant = None
         self._variant_validator = None
         self._skip_existing = False
+        self._log_skips = False
 
         self._initialize_counters()
         self.initialize_copy_buffer()
@@ -127,6 +131,17 @@ class VariantLoader(object):
         
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+        
+    
+    def log_skips(self):
+        self._log_skips = True
+        
+    
+    def set_batch_update(self):
+        """ update defaults to using execute_values / set to use execute_batch  & string buffering
+        necessary for concatenating JSON fields in updates
+        """
+        self._batch_update = True   
         
     
     def initialize_variant_validator(self, gusConfigFile):
@@ -180,6 +195,11 @@ class VariantLoader(object):
         self._chromosome_map = chrmMap
 
 
+    def get_copy_fileds(self):
+        """! @returns copy fields """
+        return self._copy_fields
+
+
     def get_current_variant(self, toStr=False):
         return print_dict(self._current_variant) if toStr else self._current_variant
     
@@ -229,8 +249,10 @@ class VariantLoader(object):
 
     def close_update_buffer(self):
         """! close the update buffer """
-        # self._update_buffer.close()
-        del self._update_buffer
+        if self._batch_update:
+            self._update_buffer.close()
+        else:
+            del self._update_buffer
         
         
     def close_copy_buffer(self):
@@ -245,8 +267,7 @@ class VariantLoader(object):
         
         
     def reset_update_buffer(self):
-        # self.close_update_buffer()
-        del self._update_buffer # garbage collect b/c may be large
+        self.close_update_buffer()
         self.initialize_update_buffer()
     
     
@@ -257,13 +278,18 @@ class VariantLoader(object):
         
     def initialize_update_buffer(self):
         """! initialize the update buffer (io.StringIO) """
-        # self._update_buffer = StringIO()
-        self._update_buffer = []
-        
+        if self._batch_update:
+            self._update_buffer = StringIO()            
+        else:
+            self._update_buffer = []
+
         
     def update_buffer(self, sizeOnly=False):
         """! returns update buffer """
-        # return self._update_buffer.tell() if sizeOnly else self._update_buffer
+        
+        if self._batch_update:
+            return self._update_buffer.tell() if sizeOnly else self._update_buffer
+        
         return len(self._update_buffer) if sizeOnly else self._update_buffer
     
     
@@ -383,6 +409,10 @@ class VariantLoader(object):
         return self._pk_generator
         
     
+    def get_algorithm_invocation_id(self):
+        return self._alg_invocation_id;
+    
+    
     def set_algorithm_invocation(self, callingScript, comment, commit=True):
         """! create entry in AnnotatedVDB.AlgorithmInvocation table for the data load
          save alg_invocation_id
@@ -440,11 +470,13 @@ class VariantLoader(object):
         
         if (self.update_buffer(sizeOnly=True) > 0):
             try:
-                #self._update_buffer.seek(0)
-                #self._cursor.execute(self._update_buffer.getvalue())
-                if self._debug:
-                    self.log(("Update buffer (head):", self._update_buffer[:10]), prefix="DEBUG")
-                execute_values(self._cursor, self._update_sql, self._update_buffer, page_size=2**10)
+                if self._batch_update:
+                    self._update_buffer.seek(0)
+                    self._cursor.execute(self._update_buffer.getvalue())
+                else:
+                    if self._debug:
+                        self.log(("Update buffer (head):", self._update_buffer[:10]), prefix="DEBUG")
+                    execute_values(self._cursor, self._update_sql, self._update_buffer, page_size=2**10)
                 self.reset_update_buffer()
             except Exception as e:
                 err = raise_pg_exception(e, returnError=True)
