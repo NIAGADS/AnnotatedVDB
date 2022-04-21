@@ -175,6 +175,8 @@ class VEPVariantLoader(VariantLoader):
             if not self.is_dbsnp() and self.skip_existing():
                 if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
                     self.increment_counter('duplicates')
+                    if self._log_skips:
+                        self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")
                     continue
 
             if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
@@ -188,6 +190,8 @@ class VEPVariantLoader(VariantLoader):
                     else:
                         self.increment_counter('skipped') # already flagged
                         self.increment_counter('duplicates')
+                        if self._log_skips:
+                            self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")                            
                         if self._debug:
                             self.log(("Is Known ADSP Variant?", annotator.get_metaseq_id(), recordPK, isAdspVariant), prefix="DEBUG")
                     continue
@@ -273,6 +277,9 @@ class VEPVariantLoader(VariantLoader):
             if self.is_dbsnp() and self.skip_existing():
                 if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', 'chr' + self._current_variant.chromosome):
                     self.increment_counter('duplicates')
+                    self.increment_counter('skipped')
+                    if self._log_skips:
+                        self.log(("Duplicate found: ", xstr(self._current_variant)), "INFO")
                     return None
         
             # rank consequences
