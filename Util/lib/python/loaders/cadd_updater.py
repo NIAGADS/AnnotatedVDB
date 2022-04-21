@@ -10,14 +10,18 @@ import pysam
 import json
 from os import path
 from types import SimpleNamespace
+from psycopg2.extras import execute_values
+
 from GenomicsDBData.Util.utils import die, warning, xstr
+from GenomicsDBData.Util.postgres_dbi import raise_pg_exception
 from AnnotatedVDB.Util.loaders import VariantLoader
+
 
 CADD_INDEL_FILE = "gnomad.genomes.r3.0.indel.tsv.gz"
 CADD_SNV_FILE = "whole_genome_SNVs.tsv.gz"
 NBSP = " " # for multi-line sql
 
-CADD_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET cadd_scores = d.cadd_scores 
+CADD_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET cadd_scores = d.cadd_scores::jsonb 
   FROM (VALUES %s) AS d(record_primary_key, chromosome, cadd_scores)
   WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
 
@@ -35,14 +39,21 @@ class CADDUpdater(VariantLoader):
         self.log((type(self).__name__, "initialized"), prefix="INFO")
 
 
-    def set_current_variant(self, variantInfo):
+    def set_current_variant(self, variantInfo, metaseqIdField = 'metaseq_id'):
         """ variantInfo should be a simple namespace or a dict"""
+        if metaseqIdField != 'metaseq_id':
+            variantInfo['metaseq_id'] = variantInfo[metaseqIdField]
+                
         self._current_variant = SimpleNamespace(**variantInfo) \
             if  isinstance(variantInfo, dict) else variantInfo
 
 
     def set_chromosome(self, chrm):
         self.__chromosome = xstr(chrm).replace('chr', '');
+
+
+    def get_chromosome(self):
+        return self.__chromosome
 
 
     def get_update_count(self, indels=False):
@@ -52,7 +63,7 @@ class CADDUpdater(VariantLoader):
 
 
     def get_total_update_count(self):
-        return self.get_count('update') + self.get_count('not_matched')
+        return self.get_count('update') + self.get_count('not_matched') + self.get_count('skipped')
 
 
     def increment_update_count(self, indels=False):
@@ -74,12 +85,43 @@ class CADDUpdater(VariantLoader):
 
     def indel(self):
         return self.__indel
+    
+    
+    def update_variants(self, chromosome=None):
+        """! execute update buffer
+        """
+        if self._update_sql is None:
+            raise ValueError("must set update sql (VariantLoader.set_update_sql(sql) before attempting update")
+        
+        chrm = chromosome if chromosome is not None else self.__chromosome
+        if chrm is None:
+            self.log("No chromosome set, update will lock AnnotatedVDB.Variant", prefix="WARNING")
+        else:
+            chrm = chrm if 'chr' in chrm else 'chr' + xstr(chrm)
+                
+        updateSql = self._update_sql
+        if chrm is not None:
+            updateSql = updateSql.replace('AnnotatedVDB.Variant', 'AnnotatedVDB.Variant_' + chrm) # otherwise parallel updates cause locks
+
+        if (self.update_buffer(sizeOnly=True) > 0):
+            try:
+                #self._update_buffer.seek(0)
+                #self._cursor.execute(self._update_buffer.getvalue())
+                if self._debug:
+                    self.log(("Update buffer (head):", self._update_buffer[:10]), prefix="DEBUG")
+                execute_values(self._cursor, updateSql, self._update_buffer, page_size=2**10)
+                self.reset_update_buffer()
+            except Exception as e:
+                err = raise_pg_exception(e, returnError=True)
+                self.log(str(err), prefix="ERROR")
+                raise err
+    
 
 
     def buffer_update_values(self, recordPK, evidence):
         """ save update values to value list """ 
         if self.__chromosome is not None:
-            chrm = self.__chromosome
+            chrm = self.__chromosome if 'chr' in self.__chromosome else 'chr' + xstr(self.__chromosome)
         else:
             values = recordPK.split(':')
             chrm = 'chr' + xstr(values[0])
@@ -114,8 +156,8 @@ class CADDUpdater(VariantLoader):
         if result is None:
             return None 
         self._current_variant.record_primary_key = result[0] # recordPK
-        return result[1] # flag indicating whether value is assinged
-
+        return result[1] if result[1] is not None else False # flag indicating whether value is assinged / newly enter
+        
 
     def slice(self, chrm, start, end, indels=False):
         """ slice CADD file; assume using this more
@@ -140,15 +182,16 @@ class CADDUpdater(VariantLoader):
     def buffer_variant(self):
         chrm, position, ref, alt = self._current_variant.metaseq_id.split(':')
         isIndel = True if len(ref) > 1 or len(alt) > 1 else False
-        self._current_variant
-        if self.skip_existing():
-            validationResult = self.is_cadd_annotated() # will update current_variant.record_primary_key if found
-            if validationResult is None:
-                self.log(("Variant", self._current_variant.metaseq_id, "not in DB, SKIPPING"), prefix="WARNING")
-                self.increment_counter('skipped')
-                self.increment_counter('not_matched')
 
-            elif validationResult: # if not none, expect a boolean -- true already set
+        validationResult = self.is_cadd_annotated() # will update current_variant.record_primary_key if found
+        
+        if validationResult is None:
+            self.log(("Variant", self._current_variant.metaseq_id, "not in DB, SKIPPING"), prefix="WARNING")
+            self.increment_counter('skipped')
+            self.increment_counter('not_matched')
+
+        elif self.skip_existing():
+            if validationResult: # if not none, expect a boolean -- true already set
                 self.log(("Variant", self._current_variant.metaseq_id, "/", self._current_variant.record_primary_key, "already updated, SKIPPING"), prefix="WARNING")
                 self.increment_counter('skipped')
 

@@ -20,10 +20,9 @@ from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser
 from AnnotatedVDB.Util.loaders import CADDUpdater
-from AnnotatedVDB.Util.chromosomes import Human
+from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
 SELECT_SQL = "SELECT record_primary_key, metaseq_id, cadd_scores FROM AnnotatedVDB.Variant WHERE chromosome = %s"
-
 
 def initialize_loader(logFilePrefix):
     """! initialize loader """
@@ -42,7 +41,9 @@ def initialize_loader(logFilePrefix):
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         
         if args.skipExisting:
-            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection   
+            loader.set_skip_existing(True, args.gusConfigFile) # initializes validator db connection  in addition to setting skip flag
+        else:
+            loader.initialize_variant_validator(args.gusConfigFile) #otherwise just initialize validator
         
     except Exception as err:
         warning("ERROR", "Problem initializing Loader")
@@ -67,9 +68,10 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
         if chromosome is not None:
             chrm = chromosome if 'chr' in xstr(chromosome) else 'chr' + xstr(chromosome)
             cname += '_' + chrm
+            loader.set_chromosome(chrm)
             
         with database.cursor() as updateCursor, database.named_cursor(cname, cursorFactory="RealDictCursor") as selectCursor:
-            selectCursor.itersize = args.commitAfter
+            selectCursor.itersize = 500000 #args.commitAfter
                         
             loader.set_cursor(updateCursor)            
             if chromosome is None:
@@ -81,33 +83,32 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
                 
             for record in selectCursor:     
                 recordCount += 1
-                if args.debug:
+                if args.debug and args.veryVerbose:
                     loader.log(("Record:", print_dict(record)), prefix="DEBUG")
                     
                 if record['cadd_scores'] is not None:
                     loader.increment_counter('skipped')
-                    if args.debug:
+                    if args.debug and args.veryVerbose:
                         loader.log(("Skipped", record['record_primary_key']), prefix="DEBUG")
-                    continue
-
-                loader.set_current_variant(record)
-                loader.buffer_variant()
-                
-                count = loader.get_count('update') + loader.get_count('not_matched')
-                if count % args.commitAfter == 0:
-                    loader.update_variants()         
+                else: 
+                    loader.set_current_variant(record)
+                    loader.buffer_variant()
+                    if recordCount % args.commitAfter == 0:
+                        if loader.update_buffer(sizeOnly=True) > 0:
+                            loader.update_variants()
+                            if args.commit:
+                                database.commit()
+                            else:
+                                database.rollback()
+                        
+                if recordCount % args.logAfter == 0:
                     message = ' '.join(("Parsed", '{:,}'.format(recordCount), "variants",
                                 "- SNVS:", '{:,}'.format(loader.get_count('snv')),
                                 "- INDELs:", '{:,}'.format(loader.get_count('indel')),
                                 "- No match", '{:,}'.format(loader.get_count('not_matched')),
                                 "- Skipped", '{:,}'.format(loader.get_count('skipped'))))
                     
-                    messagePrefix = "COMMITTED"
-                    if args.commit:
-                        database.commit()
-                    else:
-                        database.rollback()
-                        messagePrefix = "ROLLING BACK"
+                    messagePrefix = "COMMITTED" if args.commit else "ROLLING BACK"
                     
                     loader.log(message, prefix=messagePrefix)
 
@@ -117,7 +118,7 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
             # ======================= end iterate over records ==================================
             
             # clear out buffer
-            if (loader.update_buffer(sizeOnly=True)):
+            if loader.update_buffer(sizeOnly=True) > 0:
                 loader.update_variants() 
             message = ' '.join(("Updated", '{:,}'.format(recordCount), "variants",
                         "- SNVS:", '{:,}'.format(loader.get_count('snv')),
@@ -155,22 +156,22 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
 
 
 def update_cadd_scores_by_vcf(): 
-    loader = initialize_loader(args.fileName.rsplit('.', 1)[0])
+    loader = initialize_loader(args.vcfFile + "-cadd-loader")
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
         lineCount = 0
-        with database.cursor() as updateCursor, open(args.fileName, 'r') as fh:
+        with database.cursor() as updateCursor, open(args.vcfFile, 'r') as fh:
             loader.set_cursor(updateCursor)    
 
             for line in fh:
                 lineCount += 1
+                if line.startswith("#"): continue
                 entry = VcfEntryParser(line.rstrip()) 
-                loader.set_current_variant(entry.get_variant())
+                loader.set_current_variant(entry.get_variant(), 'id')
                 loader.buffer_variant()
                 
-                count = loader.get_count('update') + loader.get_count('not_matched')
-                if count % args.commitAfter == 0:
+                if lineCount % args.commitAfter == 0:
                     loader.update_variants()         
                     message = ' '.join(("Updated", '{:,}'.format(lineCount), "variants",
                                 "- SNVS:", '{:,}'.format(loader.get_count('snv')),
@@ -240,12 +241,14 @@ if __name__ == "__main__":
                         help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified")
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
+    parser.add_argument('--logAfter', type=int, default=500000)
     parser.add_argument('--logFilePath', help='generate formulaic log files and store in the specified path')
     parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
     parser.add_argument('-s', '--seqrepoProxyPath', required=True,
                         help="full path to local SeqRepo file repository")
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--veryVerbose', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--skipExisting', action='store_true')
     parser.add_argument('--gusConfigFile',
@@ -253,7 +256,6 @@ if __name__ == "__main__":
     parser.add_argument('--commit', action='store_true')
     args = parser.parse_args()
     
- 
     if args.vcfFile:
         update_cadd_scores_by_vcf()
 
