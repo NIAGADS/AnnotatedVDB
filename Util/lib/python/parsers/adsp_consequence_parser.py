@@ -140,10 +140,10 @@ class ConsequenceParser(object):
         return len(self._addedConsequences) > 0
 
     
-    def get_added_consequences(self):
+    def get_added_consequences(self, mostRecent=False):
         """! retrieve list of newly added consequences
         @return list of new consequences"""
-        return self._addedConsequences
+        return self._addedConsequences[-1] if mostRecent else self._addedConsequences
         
         
     def get_rankings(self):
