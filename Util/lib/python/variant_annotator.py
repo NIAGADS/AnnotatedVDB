@@ -31,6 +31,50 @@ class VariantAnnotator(object):
         """! public wrapper for __normalize_alleles / LEGACY
         @returns normalized alleles """
         return self.__normalize_alleles(snvDivMinus)
+    
+    
+    def infer_variant_end_location(self, rsPosition=None):
+        """! infer span of indels/deletions for a 
+        specific alternative allele, modeled off 
+        GUS Perl VariantAnnotator & dbSNP normalization conventions
+        @returns                 end location
+        """
+
+        ref = self.__ref
+        alt = self.__alt
+        
+        normRef, normAlt = self.get_normalized_alleles()
+
+        rLength = len(ref)
+        aLength = len(alt)
+
+        position = self.__position
+        rsPosition = position # holdover/so I don't have to modify the code
+        if rsPosition is None:
+            rsPosition = position
+        else:
+            rsPosition = int(rsPosition)
+
+        if rLength == 1 and aLength == 1: # SNV
+            return position
+
+        if rLength == aLength: # MNV
+            if ref == alt[::-1]: #inversion
+                return position + rLength - 1
+
+            # substitution
+            return position + len(normRef) - 1
+
+        if rLength > aLength: # deletions
+            if len(alt) > 1: # indel
+                if len(normRef) == 0: # was normalized; adjust
+                    return rsPosition + len(ref) - 2
+                return rsPosition + len(ref) - 1
+            else: # straight up deletion
+                return rsPosition + len(normRef) -  1
+
+        if rLength < aLength: # insertion
+            return rsPosition + 1
 
 
     def __normalize_alleles(self, snvDivMinus=False):
