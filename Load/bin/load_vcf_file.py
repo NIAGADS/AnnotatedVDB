@@ -16,6 +16,7 @@ import csv
 
 from datetime import datetime
 from os import path
+from sys import stdout
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from psycopg2 import DatabaseError
@@ -207,6 +208,7 @@ def load_annotation(fileName, logFilePrefix):
         mappedFile.close()
         database.close()
         loader.close()
+        print(loader.get_algorithm_invocation_id(), file=stdout)
 
 
 def validate_args():
@@ -236,7 +238,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(allow_abbrev=False, # otherwise it can substitute --chr for --chromosomeMap
                                     description='load AnnotatedDB from a VCF file, specify either a file or one or more chromosomes')
     parser.add_argument('-d', '--dir',
-                        help="directory containing VCF files / only necessary for parallel load", required=True)
+                        help="directory containing VCF files / only necessary for parallel load")
     parser.add_argument('-e', '--extension', 
                         help="file extension (e.g., vcf.gz) / required for parallel load")
     parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
@@ -244,8 +246,6 @@ if __name__ == "__main__":
                         help="full path to local SeqRepo file repository")
     parser.add_argument('-m', '--chromosomeMap', required=False,
                         help="chromosome map")
-    parser.add_argument('-r', '--rankingFile', required=True,
-                        help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
     parser.add_argument('--gusConfigFile',
                         '--full path to gus config file, else assumes $GUS_HOME/config/gus.config')
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     chrmMap = ChromosomeMap(args.chromosomeMap) if args.chromosomeMap else None
 
     if args.fileName:
-        load_annotation(args.fileName, args.fileName.split('.')[0])
+        load_annotation(args.fileName, args.fileName + "-vcf-variant-loader")
         
     else:
         chrList = args.chr.split(',') if not args.chr.startswith('all') \
