@@ -16,6 +16,7 @@ import glob
 from datetime import datetime
 from os import path
 from concurrent.futures import ProcessPoolExecutor
+from sys import stdout
 from psycopg2 import DatabaseError
 
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die
@@ -53,6 +54,7 @@ def initialize_loader(logFilePrefix):
         loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
+        
         loader.set_chromosome_map(chrmMap)
         
         if loader.is_adsp():
@@ -61,7 +63,9 @@ def initialize_loader(logFilePrefix):
         
         if args.skipExisting:
             loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
-        
+            if args.logSkips:
+                loader.log_skips()
+            
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
             loader.log("Fail at variant: " + loader.fail_at_variant(), prefix="INFO")
@@ -207,7 +211,8 @@ def load_annotation(fileName, logFilePrefix):
         mappedFile.close()
         database.close()
         loader.close()
-
+        print(loader.get_algorithm_invocation_id(), file=stdout)
+        
 
 def validate_args():
     """! validate the parameters, print warnings, and update some values as necessary """
@@ -243,7 +248,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(allow_abbrev=False, # otherwise it can substitute --chr for --chromosomeMap
                                     description='load AnnotatedDB from JSON output of VEP against dbSNP, specify either a file or one or more chromosomes')
     parser.add_argument('-d', '--dir',
-                        help="directory containing VEP results / only necessary for parallel load", required=True)
+                        help="directory containing VEP results / only necessary for parallel load")
     parser.add_argument('-e', '--extension', 
                         help="file extension (e.g., json.gz) / required for parallel load")
     parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
@@ -276,6 +281,8 @@ if __name__ == "__main__":
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--skipExisting', action='store_true',
                         help="check each variant against the database, load non-duplicates only -- time consuming")
+    parser.add_argument('--logSkips', action='store_true',
+                        help="log skipped variants")
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
@@ -286,7 +293,7 @@ if __name__ == "__main__":
     chrmMap = ChromosomeMap(args.chromosomeMap) if args.chromosomeMap else None
 
     if args.fileName:
-        load_annotation(args.fileName, args.fileName.split('.')[0])
+        load_annotation(args.fileName, args.fileName + "-vep-variant-loader")
         
     else:
         chrList = args.chr.split(',') if not args.chr.startswith('all') \
