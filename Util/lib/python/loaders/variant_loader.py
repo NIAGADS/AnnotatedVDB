@@ -69,7 +69,9 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
-JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation"]
+JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc"]
+
+BOOLEAN_FIELDS = ["is_adsp_variant", "is_multi_allelic"]
 
 class VariantLoader(object):
     """! functions for loading variants -- use child classes for specific datasources / result types """
@@ -144,9 +146,10 @@ class VariantLoader(object):
         self._batch_update = True   
         
     
-    def initialize_variant_validator(self, gusConfigFile):
+    def initialize_variant_validator(self, gusConfigFile, useLegacyPK = False):
         self.log("Initializing variant validator for duplicate checks", prefix="INFO")
         self._variant_validator = VariantRecord(gusConfigFile, self._verbose, self._debug)
+        self._variant_validator.use_legacy_pk(useLegacyPK)
     
     
     def set_skip_existing(self, skipDuplicates, gusConfigFile=None):
@@ -158,6 +161,10 @@ class VariantLoader(object):
     def has_attribute(self, field, variantId, idType, chromosome=None, returnVal=True):
         return self._variant_validator.has_attr(field, variantId, idType, chromosome, returnVal)            
     
+    
+    def has_json_attribute(self, field, key, variantId, idType, chromosome=None, returnVal=True):
+        return self._variant_validator.has_json_attr(field, key, variantId, idType, chromosome, returnVal)        
+        
             
     def is_duplicate(self, variantId, idType, chromosome=None, returnPK=False):
         return self._variant_validator.exists(variantId, idType, chromosome=chromosome, returnPK=returnPK)
@@ -168,7 +175,11 @@ class VariantLoader(object):
     
     
     def variant_validator(self):
-        return self._variant_validator()
+        return self._variant_validator
+    
+    
+    def debug(self):
+        return self._debug
     
     
     def is_fail_at_variant(self):
@@ -207,7 +218,7 @@ class VariantLoader(object):
     def get_current_variant_id(self):
         if self._debug:
             self.log(print_dict(self._current_variant, pretty=True), prefix="DEBUG")
-        return self._current_variant.id
+        return self._current_variant.id if self._current_variant is not None else None
 
 
     def _verify_copy_fields(self, copyFields):
@@ -304,6 +315,10 @@ class VariantLoader(object):
     def add_copy_str(self, copyStr):
         """! write a copy string to the copy buffer """
         self._copy_buffer.write(copyStr + '\n')
+
+
+    def get_datasource(self):
+        return self._datasource
 
 
     def is_dbsnp(self):

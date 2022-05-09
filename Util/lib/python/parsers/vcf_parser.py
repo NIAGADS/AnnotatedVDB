@@ -33,13 +33,17 @@ from GenomicsDBData.Util.list_utils import qw
 class VcfEntryParser(object):
     """! utils for parse a single line of a vcf file """
 
-    def __init__(self, entry, verbose=False, debug=False):
+    def __init__(self, entry, headerFields = None, verbose=False, debug=False):
         """! VcfEntryParser base class initializer
         @param entry       VCF Entry (row) in string format
+        @param headerFields array of fields if pVCF or non-standard VCF
         @param verbose     flag for verbose output
         @param debug       flag for debug output
         @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
         """   
+        self._header_fields = qw('chrom pos id ref alt qual filter info') \
+            if headerFields is None \
+            else [x.lower().replace("#", "") for x in headerFields]
         self.__entry = None if entry is None else self.parse_entry(entry)
         
 
@@ -57,7 +61,7 @@ class VcfEntryParser(object):
         @returns                    the string parsed into a dict
         @exception                  raises error when run into problems parsing the INFO field
         """
-        fields = qw('chrom pos id ref alt qual filter info')
+        fields = self._header_fields
         values = inputStr.split('\t')
         result = convert_str2numeric_values(dict(zip(fields, values)))
 
@@ -71,6 +75,7 @@ class VcfEntryParser(object):
                 result['info'] = convert_str2numeric_values(info)
             else:
                 result['info'] = {}
+            
         except Exception as err:
             warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
             raise err
@@ -87,7 +92,7 @@ class VcfEntryParser(object):
             self.__entry['chrom'] = chrmMap.get(self.__entry['chrom'])
 
             
-    def get_variant(self, dbSNP = False, namespace=False):
+    def get_variant(self, dbSNP=False, namespace=False):
         """! extract basic variant attributes from a VCF entry 
         @param dbSNP                  dbSNP VCF (expect fields that may not be in a generic VCF)
         @param namespace              if True return SimpleNamespace, else return dict
@@ -99,13 +104,17 @@ class VcfEntryParser(object):
         if chrom == 'MT':
             chrom = 'M'
         altAlleles = self.get('alt').split(',')
+        id = self.get('id')
+        if id == '.':
+            id = ':'.join((chrom.replace('chr', ''), xstr(self.get('pos')), self.get('ref'), self.get('alt')))
+            
         variant =  {
-            'id' : self.get('id'),
+            'id' : id,
             'ref_snp_id' : self.get_refsnp(),
             'ref_allele' : self.get('ref'),
             'alt_alleles' : altAlleles,
             'is_multi_allelic' : len(altAlleles) > 1,
-            'chromosome' : xstr(chrom),
+            'chromosome' : xstr(chrom).replace('chr', ''),
             'position' : int(self.get('pos')),
             'rs_position' : self.get_info('RSPOS') 
         }
