@@ -180,7 +180,7 @@ def update_annotation(fileName):
     finally:
         database.close()
         loader.close()
-        print(loader.get_algorithm_invocation_id(), file=stdout)
+        print('SUCCESS', file=stdout)
 
 
 def validate_args():

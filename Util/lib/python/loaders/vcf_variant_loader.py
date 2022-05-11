@@ -159,6 +159,8 @@ class VCFVariantLoader(VariantLoader):
         """ save udpate values to value list """
         if self._debug:
             self.log('Entering ' + type(self).__name__ + '.' + '__buffer_update_values', prefix="DEBUG")
+            
+        # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
         recordPK, uFlags, uValues = self.generate_update_values(entry, flags)
         
         isAdspVariant = None
@@ -188,10 +190,9 @@ class VCFVariantLoader(VariantLoader):
         
         for f in self.__update_fields:
             cValue = uValues[f]
-            if f in JSONB_UPDATE_FIELDS and isinstance(cValue, dict):
-                values.append(json.dumps(cValue))
-            # elif f == 'is_adsp_variant':
-                # values.append(False if uValues[f] is None or uValues[f] == False else uValues[f])
+         
+            if f in JSONB_UPDATE_FIELDS:
+                values.append(xstr(cValue))
             else:
                 values.append(uValues[f] if uValues[f] != 'NULL' else None)
             

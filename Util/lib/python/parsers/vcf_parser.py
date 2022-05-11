@@ -33,18 +33,42 @@ from GenomicsDBData.Util.list_utils import qw
 class VcfEntryParser(object):
     """! utils for parse a single line of a vcf file """
 
-    def __init__(self, entry, headerFields = None, verbose=False, debug=False):
+    def __init__(self, entry, headerFields = None, verbose=False, debug=False, loader=None):
         """! VcfEntryParser base class initializer
         @param entry       VCF Entry (row) in string format
         @param headerFields array of fields if pVCF or non-standard VCF
         @param verbose     flag for verbose output
         @param debug       flag for debug output
+        @param loader      if loader is present, can use its logging
         @returns           An instance of the VcfEntryParser class with parsed entry if entry is not None
         """   
+        
+        self.__debug = debug
+        self.__verbose = verbose
+        self.__loader = loader
         self._header_fields = qw('chrom pos id ref alt qual filter info') \
             if headerFields is None \
             else [x.lower().replace("#", "") for x in headerFields]
+            
         self.__entry = None if entry is None else self.parse_entry(entry)
+
+        
+    def debug(self):
+        return self.__debug
+    
+    
+    def verbose(self):
+        return self.__verbose
+    
+    
+    def log(self, message, prefix="DEBUG"):
+        if self.__loader:
+            self.__loader.log(message, prefix)
+        else:
+            if isinstance(message, str):
+                warning(prefix, message)
+            else:
+                warning(prefix, ' '.join((xstr(x) for x in message)))
         
 
     def parse_entry(self, inputStr):
@@ -64,7 +88,8 @@ class VcfEntryParser(object):
         fields = self._header_fields
         values = inputStr.split('\t')
         result = convert_str2numeric_values(dict(zip(fields, values)))
-
+       
+        
         # now unpack the info field and save as its own
         try:
             if 'info' in result:

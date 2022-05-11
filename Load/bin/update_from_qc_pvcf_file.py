@@ -18,13 +18,92 @@ from sys import stdout
 from concurrent.futures import ProcessPoolExecutor
 from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die, get_opener
+from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die, get_opener, chunker, disallowed2str
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
 from AnnotatedVDB.Util.loaders import VCFVariantLoader
 from AnnotatedVDB.Util.parsers import ChromosomeMap, VcfEntryParser
 from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
+NUM_BULK_LOOKUPS = 1000
+
+
+def load(loader, database, lookups, response):
+    variantCount = 0
+    for variant in lookups:
+        variantCount += 1
+        if variant in response:
+            if args.debug:
+                loader.log(("Lookup result for", variant + ': ', response[variant]), prefix="DEBUG")
+            if response[variant] is not None:
+                updateFlags = {'record_primary_key': response[variant]['record_primary_key'], 
+                                'is_adsp_variant': response[variant]['is_adsp_variant'],
+                                'adsp_qc': response[variant]['annotation']['ADSP_QC'] is not None}
+                if args.debug:
+                    loader.log(("Update flags:", updateFlags), prefix="DEBUG")
+                    
+                loader.parse_variant(lookups[variant], updateFlags) 
+            else: 
+                loader.parse_variant(lookups[variant])
+        else: # TODO shouldn't happen / probably should raise an error
+            loader.parse_variant(lookups[variant])
+
+        if variantCount % args.commitAfter == 0:
+            if loader.copy_buffer(sizeOnly=True) > 0:
+                loader.load_variants()
+            if loader.update_buffer(sizeOnly=True) > 0 :
+                loader.update_variants()
+            log_load(loader, database)
+                
+    # residuals
+    if loader.copy_buffer(sizeOnly=True) > 0:
+            loader.load_variants()
+    if loader.update_buffer(sizeOnly=True) > 0 :
+        loader.update_variants()
+    
+    
+
+def log_load(loader, database):
+    message = "INSERTED " + '{:,}'.format(loader.get_count('variant')) + " variants"
+    messagePrefix = "COMMITTED"
+    if args.commit:
+        database.commit()
+    else:
+        database.rollback()
+        messagePrefix = "ROLLING BACK"
+
+    message += "; up to = " + loader.get_current_variant_id()
+                    
+    if loader.get_count('update') > 0:
+        message += "; UPDATED " + '{:,}'.format(loader.get_count('update')) + " variants"
+    
+    if loader.get_count('skipped') > 0:
+        message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped')) + " variants"    
+        
+    loader.log(message, prefix=messagePrefix)
+                                
+
+
+def bulk_lookup(loader, lookups):
+    """ do the bulk lookup in batches of 200 or less to be faster """
+    numLookups = len(lookups.keys())
+    chunks = chunker(list(lookups.keys()), NUM_BULK_LOOKUPS) if numLookups > NUM_BULK_LOOKUPS else None
+    if chunks is None:
+        return loader.variant_validator().bulk_lookup(list(lookups.keys()))
+    else:
+        finalResponse = {}
+        chunkNum = 0
+        for group in chunks:
+            if args.debug:
+                chunkNum += 1
+                loader.log(("Check lookups - performing chunk", xstr(chunkNum), "; size =", xstr(len(group))), prefix="DEBUG")
+            response = loader.variant_validator().bulk_lookup(group)
+            finalResponse.update(response)
+            
+        if args.debug:
+            loader.log(("Check lookups:", len(lookups.keys())==len(finalResponse.keys())), prefix="DEBUG")
+        return finalResponse
+            
 
 def generate_update_values(loader, entry, flags):
     info = entry.get('info')
@@ -50,6 +129,12 @@ def generate_update_values(loader, entry, flags):
         }
     }
     
+    qcStr = xstr(qcValues)
+    if 'Infinity' in qcStr:
+        loader.log(("Infinity Found - String Version: " +  qcStr), prefix="ERROR")
+        loader.log(print_dict(qcValues, pretty=True), prefix="ERROR")
+        raise ValueError("Infinity found among QC scores")
+    
     # returns recordPK, flags, update values dict
     return [recordPK, {'is_adsp_variant': isAdspVariant, 'update': not hasAdspQC}, {'is_adsp_variant': adspFlag, 'adsp_qc': qcValues}];
 
@@ -60,7 +145,7 @@ def initialize_loader(logFilePrefix, chrom=None):
 
     lfn = xstr(logFilePrefix)
     if args.resumeAfter:
-        lfn += '_resume_' + args.resumeAfter 
+        lfn += '_resume_' + args.resumeAfter.replace(':','-') 
     if args.failAt:
         lfn += '_fail_' + args.failAt.replace(':', '-')
     lfn += '.log'
@@ -68,9 +153,8 @@ def initialize_loader(logFilePrefix, chrom=None):
     
     try:
         loader = VCFVariantLoader(args.version, logFileName=lfn, verbose=args.verbose, debug=args.debug) # don't want to update is_adsp_flags based on datasource but PASS status
-        
-        if args.verbose:
-            loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
+
+        loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
         loader.set_algorithm_invocation('load_vcf_result', xstr(logFilePrefix) + '|' + print_args(args, False))
         loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
@@ -113,156 +197,78 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
         loader.log(("--resumeAfter flag specified; Finding skip until point", args.resumeAfter), prefix="INFO")
-        loader.set_resume_after_variant(args.resumeAfter)
+        # loader.set_resume_after_variant(args.resumeAfter) --> handle resume during lookup before load
 
     previousLine = None
-    vcfHeaderFields = None
+    vcfHeaderFields = args.vcfHeaderFields.split(',') if args.vcfHeaderFields else None
     lookups = {}
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
         opener = get_opener(args.fileName, compressed=True, binary=True)
+        if args.debug:
+            loader.log('Preparing to do updates/inserts', prefix="DEBUG")
         with opener(fileName, 'r') as fhandle, database.cursor() as cursor:
             loader.set_cursor(cursor)
             # mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             lineCount = 0
-            preppedVariantCount = 0
+            variantCount = 0
             for line in fhandle: # iter(mappedFile.readline, b""):
                 line = line.decode("utf-8")  # in python 3, mapped file is a  binary IO object
                 line = line.rstrip()
                 if line.startswith("#"): # skip comments
                     previousLine = line
-                    continue    
+                    continue                    
                 
-                if previousLine is not None and previousLine.startswith("#"): # header, b/c this line does not start with "#"
-                    # loader.set_vcf_header_fields(previousLine.split('\t'))
+                if previousLine is not None and previousLine.startswith("#") and vcfHeaderFields is None: 
+                    # header, b/c this line does not start with "#"
                     vcfHeaderFields = previousLine.split('\t')
                     previousLine = None
                 
-                if (lineCount == 0 and not loader.resume_load()) \
-                    or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
-                    if args.debug:
-                        loader.log('Preparing to do updates/inserts', prefix="DEBUG")
-                    tstart = datetime.now()
-                        
                 lineCount += 1 
-                entry = VcfEntryParser(line, vcfHeaderFields)
+                if args.debug and lineCount % 10000 == 0:
+                    loader.log(("Read", lineCount, "lines"), prefix="DEBUG")
+                    
+                entry = VcfEntryParser(line, vcfHeaderFields, debug=True, loader=loader)
                 currentVariant = entry.get_variant()
-                for alt in currentVariant['alt_alleles']:
+                for alt in currentVariant['alt_alleles']:                  
+                    if not resume:
+                        if currentVariant['id'] == args.resumeAfter:
+                            loader.log("Resume point found", prefix="INFO")
+                            resume = True
+                        if lineCount % 50000 == 0:
+                            loader.log(("SKIPPED", lineCount, "lines"), prefix="INFO")
+                        break
+                    
+                    variantCount += 1
                     id = ':'.join((xstr(currentVariant['chromosome']),
                                    xstr(currentVariant['position']), 
                                    currentVariant['ref_allele'],
                                    alt))
                     lookups[id] = entry
                 
+                if lineCount % args.numLookups == 0 and resume:                
+                    response = bulk_lookup(loader, lookups)
+                    load(loader, database, lookups, response)  
+                    del lookups
+                    del response
+                    lookups = {}
+                                        
+                    log_load(loader, database)
+              
+                if args.test:
+                    break
 
-                if lineCount % args.commitAfter == 0:
-                    response = loader.variant_validator().bulk_lookup(list(lookups.keys()))
-                    
-                    for variant in lookups:
-                        preppedVariantCount += 1
-                        if variant in response:
-                            if args.debug:
-                                loader.log(("Lookup result for", variant + ': ', response[variant]), prefix="DEBUG")
-                            if response[variant] is not None:
-                                updateFlags = {'record_primary_key': response[variant]['record_primary_key'], 
-                                                'is_adsp_variant': response[variant]['is_adsp_variant'],
-                                                'adsp_qc': response[variant]['annotation']['ADSP_QC'] is not None}
-                                if args.debug:
-                                    loader.log(("Update flags:", updateFlags), prefix="DEBUG")
-                                    
-                                loader.parse_variant(lookups[variant], updateFlags) 
-                            else: 
-                                loader.parse_variant(lookups[variant])
-                        else: # TODO shouldn't happen / probably should raise an error
-                            loader.parse_variant(lookups[variant])
-                    
-                if not loader.resume_load():
-                    if lineCount % args.logAfter == 0:
-                        loader.log(('{:,}'.format(lineCount), "lines"), 
-                                    prefix="SKIPPED")
-                    continue
-                    
-                if loader.resume_load() != resume: # then you are at the resume cutoff
-                    resume = True
-                    loader.log(('{:,}'.format(lineCount), "lines"), 
-                                prefix="SKIPPED")
-                    continue
-                
-                if lineCount % args.logAfter == 0 \
-                    and lineCount % args.commitAfter != 0:
-                    loader.log((lineCount, "lines (", 
-                                loader.get_count('variant'), " variants)"), 
-                                prefix="PARSED")
-
-                if lineCount % args.commitAfter == 0:
-                    if args.debug:
-                        tendw = datetime.now()
-                        message = 'Statements prepared in ' + str(tendw - tstart) + '; ' + \
-                            str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
-                        loader.log(message, prefix="DEBUG") 
-                    
-                    if loader.copy_buffer(sizeOnly=True) > 0:
-                        loader.load_variants()
-                    if loader.update_buffer(sizeOnly=True) > 0 :
-                        loader.update_variants()
-
-                    message = "INSERTED " + '{:,}'.format(loader.get_count('variant')) + " variants"
-                    messagePrefix = "COMMITTED"
-                    if args.commit:
-                        database.commit()
-                    else:
-                        database.rollback()
-                        messagePrefix = "ROLLING BACK"
-
-                    if lineCount % args.logAfter == 0:
-                        message += "; up to = " + loader.get_current_variant_id()
-                        
-                        
-                        if loader.get_count('update') > 0:
-                            message += "; UPDATED " + '{:,}'.format(loader.get_count('update')) + " variants"
-                        
-                        if loader.get_count('skipped') > 0:
-                            message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped')) + " variants"    
-                            
-                        loader.log(message, prefix=messagePrefix)
-                        
-                        if args.debug:
-                            tend = datetime.now()
-                            loader.log('Database copy/update time: ' + str(tend - tendw), prefix="DEBUG")
-                            loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
-
-                    if args.test:
-                        break
-
-            # mappedFile.close()
             
             # ============== end mapped file ===================
             
-            # commit anything left in the copy buffer
-            if loader.copy_buffer(sizeOnly=True) > 0:
-                loader.load_variants()
-            if loader.update_buffer(sizeOnly=True) > 0 :
-                loader.update_variants()
-
-            message = "INSERTED " + '{:,}'.format(loader.get_count('variant')) + " variants"
-            messagePrefix = "COMMITTED"
-            if args.commit:
-                database.commit()
-            else:
-                database.rollback()
-                messagePrefix = "ROLLING BACK"
-            message += "; up to = " + loader.get_current_variant_id()
-             
-            if loader.get_count('update') > 0:
-                message += "; UPDATED " + '{:,}'.format(loader.get_count('update')) + " variants"
-                            
-            if loader.get_count('duplicates') > 0:
-                message += "; SKIPPED " + '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-            
-            loader.log(message, prefix=messagePrefix)
-            loader.log("DONE", prefix="INFO")
-                        
+            # commit anything left over
+            if len(lookups.keys()) > 0:
+                loader.log("Processing residuals", prefix="INFO")
+                response = bulk_lookup(loader, lookups)
+                load(loader, database, lookups, response)   
+                log_load(loader, database)
+                
             if args.test:
                 loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
                 
@@ -272,7 +278,7 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
         problematicVariant = loader.get_current_variant_id()
         if problematicVariant is None:
             problematicVariant = currentVariant['id']
-        loader.log("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
+        loader.log("Problem submitting insert or update, error involves any variant from last COMMIT until "  \
             + problematicVariant, prefix="ERROR")
         raise(err)
     except IOError as err:
@@ -298,9 +304,6 @@ def validate_args():
         warning("--failAt option provided / running in NON-COMMIT mode")
         args.commit = False
 
-    if not args.logAfter:
-        args.logAfter = args.commitAfter
-
     if args.fileName and args.chr:
         die("Both --fileName and --chr supplied, please specify only one, see --usage")
 
@@ -313,7 +316,8 @@ def validate_args():
                 die("Loading by chromosome, please supply path to directory containing the VEP results")
             if not args.extension:
                 die("Loading by chromosome, please provide file extension. Assume file names are like chr1.extension / TODO: pattern matching")
-            
+   
+         
 def get_input_file_name(chrm):
     """ find the file that matches the chromosome & specified extension """  
     pattern = path.join(args.dir, '*chr' + xstr(chrm) + args.extension)
@@ -336,7 +340,7 @@ if __name__ == "__main__":
     parser.add_argument('--gusConfigFile',
                         '--full path to gus config file, else assumes $GUS_HOME/config/gus.config')
     parser.add_argument('--test', action='store_true',
-                        help="load 'commitAfter' rows as test")
+                        help="load 'numLookups' rows as test")
     parser.add_argument('--resumeAfter',
                         help="variantId after which to resume load (log lists lasts committed variantId)")
     parser.add_argument('-c', '--chr', 
@@ -346,15 +350,17 @@ if __name__ == "__main__":
     parser.add_argument('--commitAfter', type=int, default=500,
                         help="commit after specified inserts")
     parser.add_argument('--maxWorkers', default=10, type=int)
-    parser.add_argument('--logAfter', type=int,
-                        help="number of inserts to log after completion; will work best if factor/multiple of commitAfter")
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--debug',  action='store_true',
                         help="log database copy time / may print development debug statements")
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--version', required=True, help='release version, e.g., 17K')
+    parser.add_argument('--numLookups', default=50000, type=int,
+                        help="number of bulk lookups to do at a time")
+    parser.add_argument('--vcfHeaderFields', help="comma separated list of fields to include", default='#CHROM,POS,ID,REF,ALT,QUAL,FILTER,INFO,FORMAT')
     args = parser.parse_args()
+
 
     validate_args()
 
