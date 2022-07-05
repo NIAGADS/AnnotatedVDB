@@ -210,9 +210,9 @@ def load_annotation(fileName, logFilePrefix):
     finally:
         mappedFile.close()
         database.close()
-        loader.close()
-        print(loader.get_algorithm_invocation_id(), file=stdout)
-        
+
+    print(loader.get_algorithm_invocation_id(), file=stdout)
+
 
 def validate_args():
     """! validate the parameters, print warnings, and update some values as necessary """

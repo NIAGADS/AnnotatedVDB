@@ -62,7 +62,7 @@ class VCFVariantLoader(VariantLoader):
             @returns                   An instance of the VCFVariantLoader class with initialized counters and copy buffer
         """
         
-        self.__update_value_generator = None
+        self.__update_value_generator = self.__default_update_values
         self.__update_existing = False
         self.__update_fields = None
         self.__vcf_header_fields = None
@@ -98,7 +98,8 @@ class VCFVariantLoader(VariantLoader):
     def initialize_copy_sql(self, copyFields=None):
         fields = REQUIRED_COPY_FIELDS  # "chromosome", "record_primary_key", "position", "metaseq_id", "bin_index", "row_algorithm_id"]   
         fields.extend(["ref_snp_id", "is_multi_allelic", "display_attributes", "allele_frequencies"])
-        fields.extend(copyFields)
+        if copyFields:
+            fields.extend(copyFields)
         
         if self._debug:
             self.log(("COPY fields", fields), prefix="DEBUG")
@@ -117,6 +118,13 @@ class VCFVariantLoader(VariantLoader):
     def generate_update_values(self, entry, flag=None):
         return self.__update_value_generator(self, entry, flag)
     
+    
+    def __default_update_values(self, entry, flags):
+        # flags should be {"metaseq_id":<value>}
+        # check if duplicates
+        if self.update_existing():
+            raise NotImplementedError("Cannot update existing variants with default generator. See update_from_qc_vcf_file.py for example of custom generator");
+        
     
     def build_update_sql(self):
         """ generate update sql """
@@ -161,6 +169,7 @@ class VCFVariantLoader(VariantLoader):
             self.log('Entering ' + type(self).__name__ + '.' + '__buffer_update_values', prefix="DEBUG")
             
         # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
+        # see default
         recordPK, uFlags, uValues = self.generate_update_values(entry, flags)
         
         isAdspVariant = None
@@ -247,6 +256,8 @@ class VCFVariantLoader(VariantLoader):
                     continue
             
             status = None
+            if flags is None:
+                flags = {'metaseq_id': annotator.get_metaseq_id()}
             if self.update_existing():
                 status = self.__buffer_update_values(vcfEntry, flags)
                 if status != 'INSERT':

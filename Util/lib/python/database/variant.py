@@ -218,7 +218,7 @@ class VariantRecord(object):
                 params.append(chrm)
                 
             if chromosome is None and lookupIdType is not 'REFSNP':
-                sql += "AND chromosome = 'chr' || split_part(%s, ':', 1)"
+                sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
                 params.append(variantId)
                 
             cursor.execute(sql, tuple(params))
@@ -274,7 +274,7 @@ class VariantRecord(object):
                 params.append(chrm)
                 
             if chromosome is None and lookupIdType is not 'REFSNP':
-                sql += "AND chromosome = 'chr' || split_part(%s, ':', 1)"
+                sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
                 params.append(variantId)
                                 
             cursor.execute(sql, tuple(params))
@@ -322,9 +322,10 @@ class VariantRecord(object):
                 chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
                 params.append(chrm)
                 
-            if chromosome is None and lookupIdType is not 'REFSNP':
-                sql += "AND chromosome = 'chr' || split_part(%s, ':', 1)"
-                params.append(variantId)
+            #if chromosome is None and lookupIdType is not 'REFSNP':
+            #    sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
+            #    params.append(variantId)
+                
             cursor.execute(sql, tuple(params))
             result = cursor.fetchone()
             
