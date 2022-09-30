@@ -215,7 +215,7 @@ class VcfEntryParser(object):
         specific alternative allele, modeled off 
         GUS Perl VariantAnnotator & dbSNP normalization conventions
         @param alt               alternative allele
-        @param normAlt           left normalized reference allele
+        @param normRef           left normalized reference allele
         @returns                 end location
         """
         self.__verify_entry()
