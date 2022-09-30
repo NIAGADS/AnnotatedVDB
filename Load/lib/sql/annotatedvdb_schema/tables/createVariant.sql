@@ -63,27 +63,13 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER variant_set_bin_index
-       AFTER INSERT ON AnnotatedVDB.Variant
-       EXECUTE PROCEDURE AnnotatedVDB.set_bin_index();
+
+CREATE TRIGGER set_bin_index
+       BEFORE INSERT ON AnnotatedVDB.Variant
+       FOR EACH ROW EXECUTE PROCEDURE AnnotatedVDB.set_bin_index();
+
 
 ------- #######
-
-/* CREATE OR REPLACE FUNCTION AnnotatedVDB.set_record_primary_key() RETURNS TRIGGER
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-  IF NEW.record_primary_key IS NULL THEN
-    NEW.record_primary_key = truncate_str(NEW.metaseq_id, 350) || COALESCE('_' || NEW.ref_snp_id, '');
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-
-CREATE TRIGGER variant_set_record_primary_key
-       AFTER INSERT ON AnnotatedVDB.Variant
-       EXECUTE PROCEDURE AnnotatedVDB.set_record_primary_key(); */
 
 -- INDEXES
 
