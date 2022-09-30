@@ -6,6 +6,7 @@ install AnnotatedVDB Schema
 
 from __future__ import print_function
 from __future__ import with_statement
+
 import argparse # parse command line args
 
 from sys import stdout, exit
@@ -58,6 +59,9 @@ def run_sql(sFile):
     if database.host() is not None:
         cmd.append('-h')
         cmd.append(database.host())
+    else:
+        cmd.append('-h')
+        cmd.append('localhost')
 
     if args.verbose:
         cmd.append('-a') # echo all
@@ -75,13 +79,15 @@ def run_sql(sFile):
   
     
 
-def verify_database(schema, db):
+def verify_database(db):
     '''
-    verify database before dropping schemas
+    verify database before doing any operation
     '''
-    verify = raw_input("\nYou are about to UNINSTALL the %s on:\n  %s\nType the name of the instance to confirm: " % (schema, db.name()) )
+    messagePrefix = "\nYou are about to CREATE the AnnotatedVDB " + ('SCHEMA' if args.createSchema else 'TABLES')  + ' in the ' + db.name() + ' instance.'
+    verify = input(messagePrefix + "\n  Enter the name of the instance to confirm: ")
+    warning(verify)
     if verify != db.name():
-        die("You did not correctly confirm the db instance.\n")
+        die("EXITING: You did not correctly confirm the db instance.\n")
 
 
 if __name__ == '__main__':
@@ -90,7 +96,7 @@ if __name__ == '__main__':
     parser.add_argument('--gusConfigFile',
                         help="GUS config file. If not provided, assumes default: $GUS_HOME/conf/gus.config")
     parser.add_argument('--createSchema', help="create AnnotatedVDB schema", action='store_true')
-    parser.add_argument('--createTables', help="create NIAGADS tables", action='store_true')
+    parser.add_argument('--createTables', help="create AnnotateVDB tables", action='store_true')
     parser.add_argument('-v', '--verbose', help="verbose output?", action='store_true')
     parser.add_argument('-p', '--psql', help="full path to psql executeable if not standard 'psql'", default="psql")
     
@@ -98,12 +104,7 @@ if __name__ == '__main__':
     
     database = Database(args.gusConfigFile)
 
-    #if args.dropNiagads:
-    #   verify_database('NIAGADS', database)
-
-    # elif args.dropNiagads:
-    #     filePath = path.join(FILE_PATH, NIAGADS_DIR, DROP_NIAGADS_SCHEMA_SQL_FILE)
-    #     run_sql(filePath)
+    verify_database(database)
 
     if args.createSchema:
         filePath = path.join(FILE_PATH, SCHEMA_DIR, CREATE_SCHEMA_SQL_FILE)
