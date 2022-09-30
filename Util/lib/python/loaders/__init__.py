@@ -3,3 +3,4 @@ from AnnotatedVDB.Util.loaders.vep_variant_loader import VEPVariantLoader
 from AnnotatedVDB.Util.loaders.vcf_variant_loader import VCFVariantLoader
 from AnnotatedVDB.Util.loaders.cadd_updater import CADDUpdater
 from AnnotatedVDB.Util.loaders.txt_variant_loader import TextVariantLoader
+from AnnotatedVDB.Util.loaders.GRCh37_annotatedvdb_patch_vep_variant_loader import PatchVEPVariantLoader
