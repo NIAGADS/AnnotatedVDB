@@ -260,7 +260,7 @@ if __name__ == "__main__":
                         help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
     parser.add_argument('--gusConfigFile',
-                        '--full path to gus config file, else assumes $GUS_HOME/config/gus.config')
+                        help='full path to gus config file, else assumes $GUS_HOME/config/gus.config')
     parser.add_argument('--test', action='store_true',
                         help="load 'commitAfter' rows as test")
     parser.add_argument('--resumeAfter',
