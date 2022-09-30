@@ -233,8 +233,8 @@ class VariantLoader(object):
                 self.log(str(err), prefix="ERROR")
                 raise err
         else:
-            err = ValueError("Copy fields include invalid columns from AnnotatedVDB.Variant: se variant_loader.py for list of allowable fields")
-            self.log(str(err), prefix="ERROR")
+            err = ValueError("Copy fields include invalid columns from AnnotatedVDB.Variant: see variant_loader.py for list of allowable fields")
+            self.log((str(err), copyFields), prefix="ERROR")
             raise err
 
 
@@ -242,14 +242,20 @@ class VariantLoader(object):
         self._update_sql = sql
         
 
-    def initialize_copy_sql(self, copyFields=None):
-        self._verify_copy_fields(copyFields)   
-        
-        self._copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else copyFields
+    def initialize_copy_sql(self, copyFields=None, appendToDefault=False):
+                
+        if not appendToDefault:
+            self._copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else copyFields
+        else:
+            # append user supplied fields to default, but
+            # remove row_algorithm_id from end of default & tack on to end
+            self._copy_fields = DEFAULT_COPY_FIELDS if copyFields is None else DEFAULT_COPY_FIELDS[:-1] + copyFields + ['row_algorithm_id']
             
         if self.is_adsp() and 'is_adsp_variant' not in self._copy_fields:
             self._copy_fields.append('is_adsp_variant')
         
+        self._verify_copy_fields(self._copy_fields)   
+
         self._copy_sql = "COPY AnnotatedVDB.Variant("  \
             + ','.join(self._copy_fields) \
             + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
