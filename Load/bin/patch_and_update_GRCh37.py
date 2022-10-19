@@ -133,7 +133,7 @@ def patch_annotation(logFilePrefix, chromosome):
         database.connect()
 
         chrm = chromosome
-        cname = 'insert'
+        cname = 'select'
         if chromosome is not None:
             chrm = chromosome if 'chr' in xstr(chromosome) else 'chr' + xstr(chromosome)
             cname += '_' + chrm

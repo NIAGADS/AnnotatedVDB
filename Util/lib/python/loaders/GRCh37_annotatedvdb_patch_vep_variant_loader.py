@@ -144,10 +144,14 @@ class PatchVEPVariantLoader(VEPVariantLoader):
     def __clean_qc_info(self, infoStr):
         ''' remove quotes and escaped quotes / the json encoding & dumping is confusing them 
         easier to remove than resolve '''
-        cleanStr = infoStr.replace('\\\\', '\\') # replace \\ with \
-        cleanStr = infoStr.replace('\\"', '') # replace \" with nothing
-        cleanStr = infoStr.replace('"', '') # replace " with nothing
+        cleanStr = infoStr
+        cleanStr = cleanStr.replace('\\"', '')
+        cleanStr = cleanStr.replace("\\'", '')
+        cleanStr = cleanStr.replace('"', '')
+        cleanStr = cleanStr.replace("'", '')
+        
         return cleanStr
+        
 
     def __update_adsp_qc(self, qcJson):
         """ parse the ADSP QC result and adjust to match format of GRCh38 result """
