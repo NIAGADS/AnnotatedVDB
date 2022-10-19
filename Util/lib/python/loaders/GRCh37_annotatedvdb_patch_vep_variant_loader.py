@@ -147,6 +147,7 @@ class PatchVEPVariantLoader(VEPVariantLoader):
         cleanStr = infoStr.replace('\\\\', '\\') # replace \\ with \
         cleanStr = infoStr.replace('\\"', '') # replace \" with nothing
         cleanStr = infoStr.replace('"', '') # replace " with nothing
+        cleanStr = infoStr.replace("\\'", "", ) # replace ' with nothing
         return cleanStr
 
     def __update_adsp_qc(self, qcJson):
