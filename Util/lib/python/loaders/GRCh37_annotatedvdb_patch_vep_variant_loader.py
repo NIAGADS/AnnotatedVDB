@@ -144,12 +144,13 @@ class PatchVEPVariantLoader(VEPVariantLoader):
     def __clean_qc_info(self, infoStr):
         ''' remove quotes and escaped quotes / the json encoding & dumping is confusing them 
         easier to remove than resolve '''
+
         cleanStr = infoStr
         cleanStr = cleanStr.replace('\\"', '')
         cleanStr = cleanStr.replace("\\'", '')
         cleanStr = cleanStr.replace('"', '')
         cleanStr = cleanStr.replace("'", '')
-        
+
         return cleanStr
         
 
