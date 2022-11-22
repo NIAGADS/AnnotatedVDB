@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator, reverse_complement
 from GenomicsDBData.Util.utils import warning, print_dict
 

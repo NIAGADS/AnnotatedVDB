@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #pylint: disable=multiple-statements,invalid-name
 
 from GenomicsDBData.Util.utils import xstr, warning

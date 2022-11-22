@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ''' test primary key generator '''
 import argparse
 import requests

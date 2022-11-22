@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
 Loads AnnotatedVDB variants from from VCF File

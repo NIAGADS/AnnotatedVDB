@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
 Iterates over VCF files and loads any missing variants that were not annotated by VEP

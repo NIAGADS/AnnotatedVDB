@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from AnnotatedVDB.Util.adsp_consequence_parser import ConsequenceParser
 from AnnotatedVDB.Util.conseq_group_enum import ConseqGroup
 import argparse

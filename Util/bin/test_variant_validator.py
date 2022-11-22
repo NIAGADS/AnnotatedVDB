@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ''' test variant validator '''
 
 from AnnotatedVDB.Util.database.variant import VariantRecord
