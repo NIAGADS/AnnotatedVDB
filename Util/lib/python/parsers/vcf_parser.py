@@ -209,45 +209,6 @@ class VcfEntryParser(object):
         return None if len(vcfFreqs) == 0 else vcfFreqs
 
 
-
-    def infer_variant_end_location(self, alt, normRef):
-        """! infer span of indels/deletions for a 
-        specific alternative allele, modeled off 
-        GUS Perl VariantAnnotator & dbSNP normalization conventions
-        @param alt               alternative allele
-        @param normAlt           left normalized reference allele
-        @returns                 end location
-        """
-        self.__verify_entry()
-        ref = self.get('ref')
-
-        rLength = len(ref)
-        aLength = len(alt)
-
-        position = int(self.get('pos'))
-
-        if rLength == 1 and aLength == 1: # SNV
-            return position
-
-        if rLength == aLength: # MNV
-            if ref == alt[::-1]: #inversion
-                return position + rLength - 1
-
-            # substitution
-            return position + len(normRef) - 1
-
-        if rLength > 1 or aLength > 1: # deletions or indel, both treated like deletions
-            if len(alt) > 1: # indel
-                if len(normRef) == 0: # was normalized; adjust
-                    return position + len(ref)
-                return position + len(normRef) 
-            else: # straight up deletion
-                return position + len(normRef)
-
-         # insertion
-        return position + 1
-
-
     def __verify_entry(self):
         """! check that entry is set 
         @returns boolean if entry has a value 
