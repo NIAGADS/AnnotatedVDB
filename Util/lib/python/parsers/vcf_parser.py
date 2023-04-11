@@ -29,6 +29,7 @@ from types import SimpleNamespace
 
 from GenomicsDBData.Util.utils import xstr, warning, convert_str2numeric_values, to_numeric
 from GenomicsDBData.Util.list_utils import qw
+from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 
 class VcfEntryParser(object):
     """! utils for parse a single line of a vcf file """
@@ -208,6 +209,15 @@ class VcfEntryParser(object):
     
         return None if len(vcfFreqs) == 0 else vcfFreqs
 
+
+    def infer_variant_end_location(self, alt):
+        """! use variant annotator to get end location
+        @param alt          allele to match (not normalized)
+        @returns inferred end location
+        @exception   failed assertion """
+        annotator = VariantAnnotator(self.get('ref'), alt, self.get('chrom'), int(self.get('pos')))
+        return annotator.infer_variant_end_location()
+                                     
 
     def __verify_entry(self):
         """! check that entry is set 
