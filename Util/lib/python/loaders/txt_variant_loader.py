@@ -121,6 +121,8 @@ class TextVariantLoader(VariantLoader):
         for f in fields:
             if f in JSONB_UPDATE_FIELDS:
                 updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ', ' # e.g. v.gwas_flags = v.gwas_flags || d.gwas_flags::jsonb
+            elif f == 'bin_index':
+                updateString += ' '.join((f,  '=', 'd.' + f + '::ltree')) + ', '
             else:
                 updateString += ' '.join((f,  '=', 'd.' + f)) + ', '
         
