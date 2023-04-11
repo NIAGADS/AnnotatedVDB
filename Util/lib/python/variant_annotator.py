@@ -60,7 +60,7 @@ class VariantAnnotator(object):
             # substitution
             return position + len(normRef) - 1
 
-        if rLength > aLength: # deletions
+        if rLength > 1 or aLength > 1 : # deletions or indels, both treated like deletions
             if len(alt) > 1: # indel
                 if len(normRef) == 0: # was normalized; adjust
                     return position + len(ref)
@@ -68,8 +68,8 @@ class VariantAnnotator(object):
             else: # straight up deletion
                 return position + len(normRef)
 
-        if rLength < aLength: # insertion
-            return position + 1
+         # insertion
+        return position + 1
 
 
     def __normalize_alleles(self, snvDivMinus=False):
