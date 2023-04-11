@@ -47,6 +47,9 @@ class VariantAnnotator(object):
 
         rLength = len(ref)
         aLength = len(alt)
+        
+        nrLength = len(normRef)
+        naLength = len(normAlt)
 
         position = int(self.__position)
 
@@ -58,19 +61,23 @@ class VariantAnnotator(object):
                 return position + rLength - 1
 
             # substitution
-            return position + len(normRef) - 1
+            return position + nrLength - 1
 
-        if rLength > 1 or aLength > 1 : # deletions or indels, both treated like deletions
-            if len(alt) > 1: # indel
-                if len(normRef) == 0: # was normalized; adjust
-                    return position + len(ref)
-                return position + len(normRef) 
-            else: # straight up deletion
-                return position + len(normRef)
+        if naLength >= 1: # insertion
+            if nrLength >= 1: # indel
+                return position + nrLength
+            # e.g. CCTTAAT/CCTTAATC -> -/C but the VCF position is at the start and not where the ins actually happens
+            elif nrLength == 0 and rLength > 1: 
+                return position + rLength - 1 # drop first base
+            else: 
+                return position + 1
 
-         # insertion
-        return position + 1
-
+        # deletion
+        if nrLength == 0:
+            return position + rLength - 1
+        else: 
+            return position + nrLength
+    
 
     def __normalize_alleles(self, snvDivMinus=False):
         """! left normalize VCF alleles
@@ -175,90 +182,54 @@ class VariantAnnotator(object):
                     'location_end': endLocation
                 })
         # end MNV
-
-        elif refLength > altLength: # deletions
+        
+        elif nAltLength >= 1: # insertion
             attributes.update({'location_start': position + 1})
-
-            if nAltLength > 1: # INDEL
+            
+            insPrefix = "ins"   
+            
+            # check for duplication (whole string, not subset)      
+            originalRef = self.__ref[1:] # strip first base (since it is start - 1)
+            nDuplications = originalRef.count(normAlt)           
+            if originalRef == normAlt or (nDuplications > 0 and len(originalRef) / nDuplications == len(normAlt)):
+                insPrefix = "dup"
+                
+            if nRefLength >= 1: # indel
                 attributes.update({
-                    'variant_class': 'indel',
-                    'variant_class_abbrev': 'INDEL'
-                    })
-
-                if nRefLength == 0:
-                    displayRef = self.__ref[1:] # strip first character from reference
-                    if displayRef == normAlt: # duplication
-                        attributes.update({
-                            'location_end': position + 1,
-                            'display_allele': 'dup' + normAlt,
-                            'sequence_allele': 'dup' + truncate_allele(normAlt),
-                            'variant_class': 'duplication',
-                            'variant_class_abbrev': 'DUP'
-                        })
-                    else:
-                        attributes.update({
-                            'location_end': endLocation,
-                            'display_allele': "del" + displayRef + "ins" + normAlt,
-                            'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
-                        })
-                else:
-                    attributes.update({
-                        'location_end': endLocation,
-                        'display_allele': "del" + normRef + "ins" + normAlt,
-                        'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
-                        })
-                # end INDEL
-
-            else: # deletion
-                attributes.update({
-                    'variant_class': "deletion",
-                    'variant_class_abbrev': "DEL",      
                     'location_end': endLocation,
-                    'display_allele': "del" + normRef,
-                    'sequence_allele': truncate_allele(normRef) + "/-"
-                    })
-
-        # end deletions
-
-        elif refLength < altLength: # insertions
-            attributes.update({'location_start': position + 1})
-
-            if refLength > 1: # INDEL
-                attributes.update({
+                    'display_allele': "del" + normRef + insPrefix + normAlt,
+                    'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt),
                     'variant_class': 'indel',
                     'variant_class_abbrev': 'INDEL'
                     })
-
-                if nRefLength == 0:
-                    displayRef = self.__ref[1:] # strip first character from reference
-                    if displayRef == normAlt: # duplication
-                        attributes.update({
-                            'location_end': position + 1,
-                            'display_allele': 'dup' + normAlt,
-                            'sequence_allele': 'dup' + truncate_allele(normAlt),
-                            'variant_class': 'duplication',
-                            'variant_class_abbrev': 'DUP'
-                            })
-                    else:
-                        attributes.update({
-                            'location_end': endLocation,
-                            'display_allele': "del" + displayRef + "ins" + normAlt,
-                            'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
-                        })
-                else:
-                    attributes.update({
-                        'location_end': endLocation,
-                        'display_allele': "del" + normRef + "ins" + normAlt,
-                        'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
-                        })
-                # end INDEL
-            else: # insertion
+                
+            # indel b/c insertion location is downstream of position
+            elif (nRefLength == 0 and endLocation != position + 1):
                 attributes.update({
-                    'variant_class': "insertion",
-                    'variant_class_abbreve': "INS",
+                    'location_end': endLocation,
+                    'display_allele': "del" + originalRef + insPrefix + normAlt,
+                    'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt),
+                    'variant_class': 'indel',
+                    'variant_class_abbrev': 'INDEL'
+                    })
+            
+            else: # just insertion
+                attributes.update({
                     'location_end': position + 1,
-                    'display_allele': "ins" + normAlt,
-                    'sequence_allele': "-/" + truncate_allele(normAlt)
-                })
-
+                    'display_allele': insPrefix + normAlt,
+                    'sequence_allele': insPrefix + truncate_allele(normAlt),
+                    'variant_class': 'duplication' if insPrefix == 'dup' else 'insertion',
+                    'variant_class_abbrev': insPrefix.upper()
+                    })
+                
+        else: # deletion
+            attributes.update({
+                'variant_class': "deletion",
+                'variant_class_abbrev': "DEL",      
+                'location_end': endLocation,
+                'location_start': position + 1,
+                'display_allele': "del" + normRef,
+                'sequence_allele': truncate_allele(normRef) + "/-"
+            })
+        
         return attributes
