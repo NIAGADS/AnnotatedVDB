@@ -189,7 +189,7 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_start': position,
+                            'location_start': position + 1,
                             'location_end': position + 1,
                             'display_allele': 'dup' + normAlt,
                             'sequence_allele': 'dup' + truncate_allele(normAlt),
@@ -224,7 +224,7 @@ class VariantAnnotator(object):
         # end deletions
 
         elif refLength < altLength: # insertions
-            attributes.update({'location_start': position})
+            attributes.update({'location_start': position + 1})
 
             if refLength > 1: # INDEL
                 attributes.update({
@@ -236,9 +236,11 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_end': endLocation,
+                            'location_end': position + 1,
                             'display_allele': 'dup' + normAlt,
-                            'sequence_allele': 'dup' + truncate_allele(normAlt)
+                            'sequence_allele': 'dup' + truncate_allele(normAlt),
+                            'variant_class': 'duplication',
+                            'variant_class_abbrev': 'DUP'
                             })
                     else:
                         attributes.update({
