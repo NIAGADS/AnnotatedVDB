@@ -177,7 +177,7 @@ class VariantAnnotator(object):
         # end MNV
 
         elif refLength > altLength: # deletions
-            attributes.update({'location_start': position})
+            attributes.update({'location_start': position + 1})
 
             if nAltLength > 1: # INDEL
                 attributes.update({
@@ -189,7 +189,6 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_start': position + 1,
                             'location_end': position + 1,
                             'display_allele': 'dup' + normAlt,
                             'sequence_allele': 'dup' + truncate_allele(normAlt),
@@ -199,14 +198,12 @@ class VariantAnnotator(object):
                     else:
                         attributes.update({
                             'location_end': endLocation,
-                            'location_start': position + 1,
                             'display_allele': "del" + displayRef + "ins" + normAlt,
                             'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
                         'location_end': endLocation,
-                        'location_start': position + 1,
                         'display_allele': "del" + normRef + "ins" + normAlt,
                         'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
                         })
@@ -215,7 +212,7 @@ class VariantAnnotator(object):
             else: # deletion
                 attributes.update({
                     'variant_class': "deletion",
-                    'variant_class_abbrev': "DEL",
+                    'variant_class_abbrev': "DEL",      
                     'location_end': endLocation,
                     'display_allele': "del" + normRef,
                     'sequence_allele': truncate_allele(normRef) + "/-"
