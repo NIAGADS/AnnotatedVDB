@@ -189,8 +189,8 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_start': position + 1,
-                            'location_end': endLocation,
+                            'location_start': position,
+                            'location_end': position + 1,
                             'display_allele': 'dup' + normAlt,
                             'sequence_allele': 'dup' + truncate_allele(normAlt),
                             'variant_class': 'duplication',
@@ -216,7 +216,7 @@ class VariantAnnotator(object):
                 attributes.update({
                     'variant_class': "deletion",
                     'variant_class_abbrev': "DEL",
-                    'location_end': position + nRefLength - 1,
+                    'location_end': endLocation,
                     'display_allele': "del" + normRef,
                     'sequence_allele': truncate_allele(normRef) + "/-"
                     })
@@ -236,19 +236,19 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_end': position + refLength - 1,
+                            'location_end': endLocation,
                             'display_allele': 'dup' + normAlt,
                             'sequence_allele': 'dup' + truncate_allele(normAlt)
                             })
                     else:
                         attributes.update({
-                            'location_end': position + refLength - 1,
+                            'location_end': endLocation,
                             'display_allele': "del" + displayRef + "ins" + normAlt,
                             'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
-                        'location_end': position + nRefLength - 1,
+                        'location_end': endLocation,
                         'display_allele': "del" + normRef + "ins" + normAlt,
                         'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
                         })
