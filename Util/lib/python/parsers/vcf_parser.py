@@ -225,11 +225,6 @@ class VcfEntryParser(object):
         aLength = len(alt)
 
         position = int(self.get('pos'))
-        rsPosition = self.get_info('RSPOS')
-        if rsPosition is None:
-            rsPosition = position
-        else:
-            rsPosition = int(rsPosition)
 
         if rLength == 1 and aLength == 1: # SNV
             return position
@@ -244,13 +239,13 @@ class VcfEntryParser(object):
         if rLength > aLength: # deletions
             if len(alt) > 1: # indel
                 if len(normRef) == 0: # was normalized; adjust
-                    return rsPosition + len(ref) - 2
-                return rsPosition + len(ref) - 1
+                    return position + len(ref)
+                return position + len(normRef) 
             else: # straight up deletion
-                return rsPosition + len(normRef) -  1
+                return position + len(normRef)
 
         if rLength < aLength: # insertion
-            return rsPosition + 1
+            return position + 1
 
 
     def __verify_entry(self):

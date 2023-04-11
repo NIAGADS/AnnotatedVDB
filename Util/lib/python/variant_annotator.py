@@ -48,12 +48,7 @@ class VariantAnnotator(object):
         rLength = len(ref)
         aLength = len(alt)
 
-        position = self.__position
-        rsPosition = position # holdover/so I don't have to modify the code
-        if rsPosition is None:
-            rsPosition = position
-        else:
-            rsPosition = int(rsPosition)
+        position = int(self.__position)
 
         if rLength == 1 and aLength == 1: # SNV
             return position
@@ -68,13 +63,13 @@ class VariantAnnotator(object):
         if rLength > aLength: # deletions
             if len(alt) > 1: # indel
                 if len(normRef) == 0: # was normalized; adjust
-                    return rsPosition + len(ref) - 2
-                return rsPosition + len(ref) - 1
+                    return position + len(ref)
+                return position + len(normRef) 
             else: # straight up deletion
-                return rsPosition + len(normRef) -  1
+                return position + len(normRef)
 
         if rLength < aLength: # insertion
-            return rsPosition + 1
+            return position + 1
 
 
     def __normalize_alleles(self, snvDivMinus=False):
@@ -135,8 +130,7 @@ class VariantAnnotator(object):
         @returns                 dict containing display attributes
         """
         
-        if rsPosition is None:
-            rsPosition = self.__position
+        position = self.__position
             
         refLength = len(self.__ref)
         altLength = len(self.__alt)
@@ -145,10 +139,12 @@ class VariantAnnotator(object):
         nRefLength = len(normRef)
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
+        
+        endLocation = self.infer_variant_end_location()
 
         attributes = {
-            'location_start': self.__position,
-            'location_end': self.__position
+            'location_start': position,
+            'location_end': position
         }
      
         if (refLength == 1 and altLength == 1): # SNV
@@ -167,7 +163,7 @@ class VariantAnnotator(object):
                     'variant_class_abbrev': "MNV",
                     'display_allele': 'inv' + self.__ref,
                     'sequence_allele': truncate_allele(self.__ref) + '/' + truncate_allele(self.__alt),
-                    'location_end': self.__position + refLength - 1
+                    'location_end': endLocation
                 })
             else:
                 attributes.update({
@@ -175,13 +171,13 @@ class VariantAnnotator(object):
                     'variant_class_abbrev': "MNV",
                     'display_allele': normRef + ">" + normAlt,
                     'sequence_allele': truncate_allele(normRef) + '/' + truncate_allele(normAlt),
-                    'location_start': rsPosition,
-                    'location_end': rsPosition + nRefLength - 1
+                    'location_start': position,
+                    'location_end': endLocation
                 })
         # end MNV
 
         elif refLength > altLength: # deletions
-            attributes.update({'location_start': rsPosition})
+            attributes.update({'location_start': position})
 
             if nAltLength > 1: # INDEL
                 attributes.update({
@@ -193,19 +189,24 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_end': rsPosition + refLength - 1,
+                            'location_start': position + 1,
+                            'location_end': endLocation,
                             'display_allele': 'dup' + normAlt,
-                            'sequence_allele': 'dup' + truncate_allele(normAlt)
+                            'sequence_allele': 'dup' + truncate_allele(normAlt),
+                            'variant_class': 'duplication',
+                            'variant_class_abbrev': 'DUP'
                         })
                     else:
                         attributes.update({
-                            'location_end': rsPosition + refLength - 1,
+                            'location_end': endLocation,
+                            'location_start': position + 1,
                             'display_allele': "del" + displayRef + "ins" + normAlt,
                             'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
-                        'location_end': rsPosition + nRefLength - 1,
+                        'location_end': endLocation,
+                        'location_start': position + 1,
                         'display_allele': "del" + normRef + "ins" + normAlt,
                         'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
                         })
@@ -215,7 +216,7 @@ class VariantAnnotator(object):
                 attributes.update({
                     'variant_class': "deletion",
                     'variant_class_abbrev': "DEL",
-                    'location_end': rsPosition + nRefLength - 1,
+                    'location_end': position + nRefLength - 1,
                     'display_allele': "del" + normRef,
                     'sequence_allele': truncate_allele(normRef) + "/-"
                     })
@@ -223,7 +224,7 @@ class VariantAnnotator(object):
         # end deletions
 
         elif refLength < altLength: # insertions
-            attributes.update({'location_start': rsPosition})
+            attributes.update({'location_start': position})
 
             if refLength > 1: # INDEL
                 attributes.update({
@@ -235,19 +236,19 @@ class VariantAnnotator(object):
                     displayRef = self.__ref[1:] # strip first character from reference
                     if displayRef == normAlt: # duplication
                         attributes.update({
-                            'location_end': rsPosition + refLength - 1,
+                            'location_end': position + refLength - 1,
                             'display_allele': 'dup' + normAlt,
                             'sequence_allele': 'dup' + truncate_allele(normAlt)
                             })
                     else:
                         attributes.update({
-                            'location_end': rsPosition + refLength - 1,
+                            'location_end': position + refLength - 1,
                             'display_allele': "del" + displayRef + "ins" + normAlt,
                             'sequence_allele': truncate_allele(displayRef) + "/" + truncate_allele(normAlt)
                         })
                 else:
                     attributes.update({
-                        'location_end': rsPosition + nRefLength - 1,
+                        'location_end': position + nRefLength - 1,
                         'display_allele': "del" + normRef + "ins" + normAlt,
                         'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt)
                         })
@@ -256,7 +257,7 @@ class VariantAnnotator(object):
                 attributes.update({
                     'variant_class': "insertion",
                     'variant_class_abbreve': "INS",
-                    'location_end': rsPosition + 1,
+                    'location_end': position + 1,
                     'display_allele': "ins" + normAlt,
                     'sequence_allele': "-/" + truncate_allele(normAlt)
                 })
