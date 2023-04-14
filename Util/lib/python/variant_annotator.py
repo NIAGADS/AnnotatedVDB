@@ -5,9 +5,9 @@
 
 from GenomicsDBData.Util.utils import xstr, truncate, reverse, warning
 
-def truncate_allele(value):
+def truncate_allele(value, long=False):
     """ wrapper for trunctate to 5 chars """
-    return truncate(value, 8)
+    return truncate(value, 100) if long else truncate(value, 8) 
 
 def reverse_complement(seq):
     """! @returns reverse complement of the specified sequence (seq)
@@ -137,8 +137,10 @@ class VariantAnnotator(object):
         @returns                 dict containing display attributes
         """
         
+        LONG = True
+        
         position = self.__position
-            
+         
         refLength = len(self.__ref)
         altLength = len(self.__alt)
 
@@ -147,6 +149,7 @@ class VariantAnnotator(object):
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
         
+
         endLocation = self.infer_variant_end_location()
 
         attributes = {
@@ -197,7 +200,7 @@ class VariantAnnotator(object):
             if nRefLength >= 1: # indel
                 attributes.update({
                     'location_end': endLocation,
-                    'display_allele': "del" + normRef + insPrefix + normAlt,
+                    'display_allele': "del" + truncate_allele(normRef, LONG) + insPrefix + truncate_allele(normAlt, LONG),
                     'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt),
                     'variant_class': 'indel',
                     'variant_class_abbrev': 'INDEL'
@@ -207,7 +210,7 @@ class VariantAnnotator(object):
             elif (nRefLength == 0 and endLocation != position + 1):
                 attributes.update({
                     'location_end': endLocation,
-                    'display_allele': "del" + originalRef + insPrefix + normAlt,
+                    'display_allele': "del" + truncate_allele(originalRef, LONG) + insPrefix + truncate_allele(normAlt, LONG),
                     'sequence_allele': truncate_allele(normRef) + "/" + truncate_allele(normAlt),
                     'variant_class': 'indel',
                     'variant_class_abbrev': 'INDEL'
@@ -216,7 +219,7 @@ class VariantAnnotator(object):
             else: # just insertion
                 attributes.update({
                     'location_end': position + 1,
-                    'display_allele': insPrefix + normAlt,
+                    'display_allele': insPrefix + truncate_allele(normAlt, LONG),
                     'sequence_allele': insPrefix + truncate_allele(normAlt),
                     'variant_class': 'duplication' if insPrefix == 'dup' else 'insertion',
                     'variant_class_abbrev': insPrefix.upper()
@@ -228,7 +231,7 @@ class VariantAnnotator(object):
                 'variant_class_abbrev': "DEL",      
                 'location_end': endLocation,
                 'location_start': position + 1,
-                'display_allele': "del" + normRef,
+                'display_allele': "del" + truncate_allele(normRef, LONG),
                 'sequence_allele': truncate_allele(normRef) + "/-"
             })
         
