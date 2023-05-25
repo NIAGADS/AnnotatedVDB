@@ -130,10 +130,11 @@ class VcfEntryParser(object):
         if chrom == 'MT':
             chrom = 'M'
         altAlleles = self.get('alt').split(',')
+        
         id = self.get('id')
-        if id == '.':
+        if id == '.' or id.startswith('rs'): # refSnp will be stored in different field
             id = ':'.join((chrom.replace('chr', ''), xstr(self.get('pos')), self.get('ref'), self.get('alt')))
-            
+                    
         variant =  {
             'id' : id,
             'ref_snp_id' : self.get_refsnp(),
