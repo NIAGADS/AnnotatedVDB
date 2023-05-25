@@ -123,7 +123,7 @@ class VariantAnnotator(object):
 
     def __set_metaseq_id(self):
         """! generate metaseq id and set value"""
-        self.__metaseqId = ':'.join((self.__chrom, xstr(self.__position), self.__ref, self.__alt))
+        self.__metaseqId = ':'.join((xstr(self.__chrom), xstr(self.__position), self.__ref, self.__alt))
 
 
     def get_metaseq_id(self):
