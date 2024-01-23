@@ -25,7 +25,6 @@
 # @section author_variant Author(s)
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
-import sqlite3
 import json
 from niagads.utils.postgres_dbi import Database, raise_pg_exception
 from niagads.utils.sys import warning
@@ -51,7 +50,8 @@ LOOKUP_SQL = {
     'LEGACY_PRIMARY_KEY': LEGACY_PRIMARY_KEY_LOOKUP_SQL
 }
 
-BULK_LOOKUP_SQL = "SELECT * from get_variant_primary_keys_and_annotations(%s, %s)"; # second param is "firstValueOnly flag"
+BULK_LOOKUP_FULL_SQL = "SELECT * from get_variant_primary_keys_and_annotations(%s, %s)"; # second param is "firstValueOnly flag"
+BULK_LOOKUP_SQL = "SELECT * from map_variants(%s, %s)"; # second param is "firstValueOnly flag"
 
 class VariantRecord(object):
     """! functions finding and validating against variants in the DB    
@@ -164,7 +164,7 @@ class VariantRecord(object):
         return self.__cursors[cursorKey]
     
 
-    def bulk_lookup(self, variants, firstHitOnly=True):
+    def bulk_lookup(self, variants, firstHitOnly=True, fullAnnotation=True):
         """! lookups up a list of variants in the DB / takes metaseq_ids or refsnps 
         and returns the folling JSON: (note this eg is mapped against the GRCh37 DB, but the idea is the same)
             "1:1510801:C:T": {
@@ -186,7 +186,7 @@ class VariantRecord(object):
         TODO currently firstHitOnly is ignored as only fetchone is being used
         """
         cursorKey = 'BULK_VARIANT_LOOKUP'
-        sql = BULK_LOOKUP_SQL
+        sql = BULK_LOOKUP_FULL_SQL if fullAnnotation else BULK_LOOKUP_SQL
         cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
         if not isinstance(variants, str): # assume array or tuple
             variants = ','.join(variants)
