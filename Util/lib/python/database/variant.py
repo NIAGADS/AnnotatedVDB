@@ -27,8 +27,8 @@
 
 import sqlite3
 import json
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
-from GenomicsDBData.Util.utils import warning
+from niagads.utils.postgres_dbi import Database, raise_pg_exception
+from niagads.utils.sys import warning
 
 VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']
 
@@ -58,7 +58,7 @@ class VariantRecord(object):
     creates one database cursor for each type of lookups to avoid locks
     """
     
-    def __init__(self, gusConfigFile=None, verbose=False, debug=False):
+    def __init__(self, gusConfigFile=None, connectionString=None, verbose=False, debug=False):
         """! VariantRecord base class initializer
         @param gusConfigFile          file containing connection info for the DB, following gus.config format
         @param verbose                flag for verbose output
@@ -69,7 +69,7 @@ class VariantRecord(object):
         self.__verbose = verbose
         self.__legacy_pk = False # use legacy dynamic PK
         self.__database = None
-        self.__cursors = {}                # possibly one for each ID TYPE
+        self.__cursors  = {}                # possibly one for each ID TYPE
                 
         self.__initialize_database(gusConfigFile)
         
@@ -86,8 +86,15 @@ class VariantRecord(object):
             raise_pg_exception(err)
             
     
+    def close_cursor(self, cursorKey):
+        """
+        close cursor by key
+        """
+        self.__cursors[cursorKey].close()
+    
+    
     def close_cursors(self):
-        """! close any open database cursors"""
+        """close any open database cursors"""
         for cursor in self.__cursors.values():
             cursor.close()
             
@@ -115,6 +122,13 @@ class VariantRecord(object):
         """
         if idType.upper() not in VARIANT_ID_TYPES:
             raise ValueError(idType + ' not a valid variant ID type: ' + VARIANT_ID_TYPES)
+        
+        
+    def initialize_named_cursor(self, name: str, realDict=False, withhold=False):
+        if ' ' in name:
+            raise ValueError("Invalid name " + name + " for cursor; no spaces allowed")
+        cursorFactory = 'RealDictCursor' if realDict else None
+        self.__cursors[name] = self.__database.named_cursor(name, cursorFactory=cursorFactory, withhold=withhold)
         
         
     def initialize_cursor(self, cursorKey, realDict=False):
@@ -149,7 +163,7 @@ class VariantRecord(object):
     
         return self.__cursors[cursorKey]
     
-    
+
     def bulk_lookup(self, variants, firstHitOnly=True):
         """! lookups up a list of variants in the DB / takes metaseq_ids or refsnps 
         and returns the folling JSON: (note this eg is mapped against the GRCh37 DB, but the idea is the same)
