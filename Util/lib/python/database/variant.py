@@ -26,6 +26,7 @@
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import json
+import logging
 from niagads.utils.postgres_dbi import Database, raise_pg_exception
 from niagads.utils.sys import warning
 
@@ -65,8 +66,9 @@ class VariantRecord(object):
         @param debug                  flag for debug output
         @returns                      An instance of the VariantLoader class with initialized database cursor
         """
-        self.__debug = debug
-        self.__verbose = verbose
+        self._debug = debug
+        self._verbose = verbose
+        self.logger = logging.getLogger(__name__)
         self.__legacy_pk = False # use legacy dynamic PK
         self.__database = None
         self.__cursors  = {}                # possibly one for each ID TYPE
@@ -182,8 +184,6 @@ class VariantRecord(object):
                 "record_primary_key": "1:1510801:C:T_rs7519837" 
             },
             
-        for each match
-        TODO currently firstHitOnly is ignored as only fetchone is being used
         """
         cursorKey = 'BULK_VARIANT_LOOKUP'
         sql = BULK_LOOKUP_FULL_SQL if fullAnnotation else BULK_LOOKUP_SQL
@@ -193,7 +193,9 @@ class VariantRecord(object):
         params = [variants, firstHitOnly]
         cursor.execute(sql, tuple(params))
         result = cursor.fetchone()[0]
-        return json.loads(result)
+        if self._debug:
+            self.logger.debug(result)
+        return json.loads(result) if isinstance(result, str) else result
     
     
     def has_json_attr(self, field, key, variantId, idType, chromosome=None, returnVal=True):
@@ -208,7 +210,7 @@ class VariantRecord(object):
         """       
         idType = idType.upper()
         self.__validate_id_type(idType)
-      
+
         try: 
             lookupIdType = 'LEGACY_PRIMARY_KEY' if idType == 'PRIMARY_KEY' and self.legacy_pk() else idType
             cursorKey = 'HAS_JSON_ATTR_' + field + '_' + lookupIdType
@@ -218,7 +220,7 @@ class VariantRecord(object):
             if self.legacy_pk():
                 sql = sql.replace('AnnotatedVDB', 'Public')
                 sql = sql.replace('SELECT record_primary_key',
-                                  "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id', LEFT(metaseq_id, 50)) AS record_primary_key")
+                    "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id', LEFT(metaseq_id, 50)) AS record_primary_key")
                 
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
             numBindParams = sql.count('%s')
@@ -237,7 +239,7 @@ class VariantRecord(object):
                 
             cursor.execute(sql, tuple(params))
             result = cursor.fetchone()
-                     
+
             if result is None:
                 return None # variant not in db
             
