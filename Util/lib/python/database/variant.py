@@ -193,8 +193,6 @@ class VariantRecord(object):
         params = [variants, firstHitOnly]
         cursor.execute(sql, tuple(params))
         result = cursor.fetchone()[0]
-        if self._debug:
-            self.logger.debug(result)
         return json.loads(result) if isinstance(result, str) else result
     
     
