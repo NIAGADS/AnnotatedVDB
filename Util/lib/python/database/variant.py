@@ -28,7 +28,7 @@
 import json
 import logging
 from niagads.utils.postgres_dbi import Database, raise_pg_exception
-from niagads.utils.sys import warning
+from niagads.utils.string import xstr
 
 VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']
 
@@ -51,8 +51,8 @@ LOOKUP_SQL = {
     'LEGACY_PRIMARY_KEY': LEGACY_PRIMARY_KEY_LOOKUP_SQL
 }
 
-BULK_LOOKUP_FULL_SQL = "SELECT * from get_variant_primary_keys_and_annotations(%s, %s)"; # second param is "firstValueOnly flag"
-BULK_LOOKUP_SQL = "SELECT * from map_variants(%s, %s)"; # second param is "firstValueOnly flag"
+BULK_LOOKUP_FULL_SQL = "SELECT * from get_variant_primary_keys_and_annotations(%s, %s, %s)"; # second param is "firstValueOnly flag"
+BULK_LOOKUP_SQL = "SELECT * from map_variants(%s, %s, %s)"; # second param is "firstValueOnly flag", then checkAltVariants
 
 class VariantRecord(object):
     """! functions finding and validating against variants in the DB    
@@ -111,6 +111,10 @@ class VariantRecord(object):
         """! close the VariantRecord object """
         self.close_database()
     
+    
+    def rollback(self):
+        self.__database.rollback()
+        
         
     def __exit__(self, exc_type, exc_value, traceback):
         """! garbage collection """
@@ -166,7 +170,7 @@ class VariantRecord(object):
         return self.__cursors[cursorKey]
     
 
-    def bulk_lookup(self, variants, firstHitOnly=True, fullAnnotation=True):
+    def bulk_lookup(self, variants, firstHitOnly=True, fullAnnotation=True, checkAltVariants=True):
         """! lookups up a list of variants in the DB / takes metaseq_ids or refsnps 
         and returns the folling JSON: (note this eg is mapped against the GRCh37 DB, but the idea is the same)
             "1:1510801:C:T": {
@@ -190,9 +194,14 @@ class VariantRecord(object):
         cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
         if not isinstance(variants, str): # assume array or tuple
             variants = ','.join(variants)
-        params = [variants, firstHitOnly]
+            
+        params = [variants, firstHitOnly, checkAltVariants]
         cursor.execute(sql, tuple(params))
         result = cursor.fetchone()[0]
+        
+        if self._debug:
+            self.logger.debug(xstr({'variants': variants, 'result': result}))
+            
         return json.loads(result) if isinstance(result, str) else result
     
     
