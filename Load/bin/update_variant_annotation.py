@@ -211,7 +211,6 @@ if __name__ == "__main__":
                         help="commit after specified inserts")
     parser.add_argument('--useDynamicPkSql', action='store_true',
                         help="for legacy version, use sql that dynamically infers PK")
-    parser.add_argument('--maxWorkers', default=10, type=int)
     parser.add_argument('--logAfter', type=int,
                         help="number of inserts to log after completion; will work best if factor/multiple of commitAfter")
     parser.add_argument('--verbose', action='store_true')
