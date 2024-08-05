@@ -34,7 +34,7 @@ from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 class VcfEntryParser(object):
     """! utils for parse a single line of a vcf file """
 
-    def __init__(self, entry, headerFields = None, verbose=False, debug=False, loader=None):
+    def __init__(self, entry, headerFields = None, identityOnly=False, verbose=False, debug=False, loader=None):
         """! VcfEntryParser base class initializer
         @param entry       VCF Entry (row) in string format
         @param headerFields array of fields if pVCF or non-standard VCF
@@ -47,9 +47,10 @@ class VcfEntryParser(object):
         self.__debug = debug
         self.__verbose = verbose
         self.__loader = loader
-        self._header_fields = qw('chrom pos id ref alt qual filter info') \
-            if headerFields is None \
-            else [x.lower().replace("#", "") for x in headerFields]
+        self._header_fields = qw('chrom pos id ref alt') if identityOnly \
+            else qw('chrom pos id ref alt qual filter info') \
+                if headerFields is None \
+                    else [x.lower().replace("#", "") for x in headerFields]
             
         self.__entry = None if entry is None else self.parse_entry(entry)
 
@@ -88,9 +89,12 @@ class VcfEntryParser(object):
         """
         fields = self._header_fields
         values = inputStr.split('\t')
-        result = convert_str2numeric_values(dict(zip(fields, values)))
-       
         
+        entry = dict(zip(fields, values)) if len(fields) == len(values) \
+            else {field: values[index] for index, field in enumerate(fields)} # assume identityOnly
+
+        result = convert_str2numeric_values(entry)
+
         # now unpack the info field and save as its own
         try:
             if 'info' in result:
@@ -99,12 +103,13 @@ class VcfEntryParser(object):
                 infoStr = infoStr.replace('#', ':') # b/c using pound sign as COPY delimiter
                 info = dict(item.split('=',1) if '=' in item else [item, True] for item in infoStr.split(';'))
                 result['info'] = convert_str2numeric_values(info)
-            else:
-                result['info'] = {}
+            # else:
+            #     result['info'] = {}
             
         except Exception as err:
             warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
             raise err
+        
         return result
 
 
@@ -157,7 +162,7 @@ class VcfEntryParser(object):
 
         if 'rs' in self.__entry['id']:
             return self.__entry['id']
-        if 'RS' in self.__entry['info']:
+        if 'info' in self.__entry and 'RS' in self.__entry['info']:
             return 'rs' + str(self.__entry['info']['RS'])
         else:
             return None
