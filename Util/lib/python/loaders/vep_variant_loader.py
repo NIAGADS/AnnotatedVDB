@@ -258,7 +258,7 @@ class VEPVariantLoader(VariantLoader):
             resultJson = json.loads(line)
             self.__vep_parser.set_annotation(deepcopy(resultJson))
  
-            entry = VcfEntryParser(self.__vep_parser.get('input'))
+            entry = VcfEntryParser(self.__vep_parser.get('input'), identityOnly=self.is_adsp())
                 
             if not self.resume_load():
                 self._update_resume_status(entry.get('id'))
