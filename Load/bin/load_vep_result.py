@@ -266,7 +266,7 @@ if __name__ == "__main__":
     parser.add_argument('--resumeAfter',
                         help="variant after which to resume load (log lists lasts committed variant)")
     parser.add_argument('-c', '--chr', 
-                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
+                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` , `autosome` / required for parallel load"),
     parser.add_argument('--fileName',
                         help="full path of file to load, if --dir option is provided, will be ignored")
     parser.add_argument('--commitAfter', type=int, default=500,
@@ -305,6 +305,8 @@ if __name__ == "__main__":
                 for c in chrList:
                     if args.chr == 'allNoM' and c == 'M':
                         continue 
+                    if args.chr == 'autosome' and c in ['X', 'Y', 'M', 'MT']:
+                        continue
                     warning("Create and start thread for chromosome:", xstr(c))
                     inputFile = get_input_file_name(c)
                     executor.submit(load_annotation, fileName=inputFile, logFilePrefix='chr' + xstr(c))
