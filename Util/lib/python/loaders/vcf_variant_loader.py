@@ -136,7 +136,8 @@ class VCFVariantLoader(VariantLoader):
         updateString = ""   
         for f in fields:
             if f in JSONB_UPDATE_FIELDS:
-                updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ',' + NBSP 
+                # updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ',' + NBSP 
+                updateString += ' '.join((f,  '=', 'jsonb_merge(COALESCE(v.' + f, ",'{}'::jsonb),", 'd.' + f + '::jsonb)')) + ',' + NBSP # e.g. v.gwas_flags = jsonb_merge(v.gwas_flags, d.gwas_flags::jsonb)
                 # e.g. v.gwas_flags = v.gwas_flags || d.gwas_flags::jsonb
             elif f in BOOLEAN_FIELDS:
                 updateString += ' '.join((f,  '=', 'd.' + f + '::BOOLEAN')) + ',' + NBSP
