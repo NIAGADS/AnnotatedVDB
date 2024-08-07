@@ -90,13 +90,13 @@ class VcfEntryParser(object):
         fields = self._header_fields
         values = inputStr.split('\t')
         
-        entry = dict(zip(fields, values)) if len(fields) == len(values) \
-            else {field: values[index] for index, field in enumerate(fields)} # assume identityOnly
-
-        result = convert_str2numeric_values(entry)
-
         # now unpack the info field and save as its own
         try:
+            entry = dict(zip(fields, values)) if len(fields) == len(values) \
+                else {field: values[index] for index, field in enumerate(fields)} # assume identityOnly
+
+            result = convert_str2numeric_values(entry)
+
             if 'info' in result:
                 infoStr = result['info'].replace('\\x2c', ',') # \x escape causes JSON parsing issues
                 infoStr = infoStr.replace('\\x59', '/') # \x59 is a semi-colon, but b/c its a delimiter can't use
@@ -107,8 +107,7 @@ class VcfEntryParser(object):
             #     result['info'] = {}
             
         except Exception as err:
-            warning("ERROR parsing variant -", result['id'], "- unable to split item in VCF entry INFO field:", xstr(result['info']))
-            raise err
+            raise ImportError(f'Unable to parse VCF entry: {inputStr}; ERROR: {str(err)}')
         
         return result
 
