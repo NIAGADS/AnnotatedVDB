@@ -45,6 +45,7 @@ def load(loader, database, lookups, response):
                 loader.parse_variant(lookups[variant], updateFlags) 
             else: 
                 loader.parse_variant(lookups[variant])
+                    
         else: # TODO shouldn't happen / probably should raise an error
             loader.parse_variant(lookups[variant])
 
@@ -109,17 +110,18 @@ def generate_update_values(loader, entry, flags):
     info = entry.get('info')
     filter = entry.get('filter')
     qual = entry.get('qual')
-    format = entry.get('format')
+    format = entry.get('format', raiseError=False) # set value to None if empty
     release = loader.get_datasource() # ADSP release
     
     if loader.debug():
         loader.log(("Generate Update Values:", flags), prefix="DEBUG")
-    
+
     recordPK = flags['record_primary_key'] if flags is not None else None
     isAdspVariant = flags['is_adsp_variant'] if flags is not None else None
     hasAdspQC = flags['adsp_qc'] if flags is not None else None
-    
-    adspFlag = True if isAdspVariant else True if filter == 'PASS' else 'NULL'
+        
+    adspFlag = True if filter == 'PASS' else 'NULL'
+            
     qcValues = {
         release : {
             "info": info,
@@ -136,7 +138,8 @@ def generate_update_values(loader, entry, flags):
         raise ValueError("Infinity found among QC scores")
     
     # returns recordPK, flags, update values dict
-    return [recordPK, {'is_adsp_variant': isAdspVariant, 'update': not hasAdspQC}, {'is_adsp_variant': adspFlag, 'adsp_qc': qcValues}];
+    return [recordPK, {'is_adsp_variant': isAdspVariant, 'update': args.updateExistingValues or not hasAdspQC}, 
+            {'is_adsp_variant': adspFlag, 'adsp_qc': qcValues}]
 
 
 
@@ -242,9 +245,9 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
                     
                     variantCount += 1
                     id = ':'.join((xstr(currentVariant['chromosome']),
-                                   xstr(currentVariant['position']), 
-                                   currentVariant['ref_allele'],
-                                   alt))
+                        xstr(currentVariant['position']), 
+                        currentVariant['ref_allele'],
+                        alt))
                     lookups[id] = entry
                 
                 if lineCount % args.numLookups == 0 and resume:                
@@ -255,7 +258,7 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
                     lookups = {}
                                         
                     log_load(loader, database)
-              
+
                 if args.test:
                     break
 
@@ -356,6 +359,8 @@ if __name__ == "__main__":
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--version', required=True, help='release version, e.g., 17K')
+    parser.add_argument('--updateExistingValues', action="store_true",
+                        help="update fields even if value exists; if flag not specificed will skip records that already have values")
     parser.add_argument('--numLookups', default=50000, type=int,
                         help="number of bulk lookups to do at a time")
     parser.add_argument('--vcfHeaderFields', help="comma separated list of fields to include", default='#CHROM,POS,ID,REF,ALT,QUAL,FILTER,INFO,FORMAT')
