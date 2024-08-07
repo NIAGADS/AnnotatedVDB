@@ -89,7 +89,7 @@ class VcfEntryParser(object):
         """
         fields = self._header_fields
         values = inputStr.split('\t')
-        
+
         # now unpack the info field and save as its own
         try:
             entry = dict(zip(fields, values)) if len(fields) == len(values) \
@@ -106,6 +106,8 @@ class VcfEntryParser(object):
             # else:
             #     result['info'] = {}
             
+        except IndexError as err:
+            raise IndexError(f'The number of fields in the VCF entry do not match number expected from provided VCF Header')
         except Exception as err:
             raise ImportError(f'Unable to parse VCF entry: {inputStr}; ERROR: {str(err)}')
         
@@ -173,10 +175,15 @@ class VcfEntryParser(object):
         return self.__entry
 
     
-    def get(self, key):
+    def get(self, key, raiseError=True):
         """! get the entry value associated with the key """
         self.__verify_entry()
-        return self.__entry[key]
+        try:
+            return self.__entry[key]
+        except KeyError as err:
+            if raiseError:
+                raise err
+            return None
 
 
     def get_info(self, key):
