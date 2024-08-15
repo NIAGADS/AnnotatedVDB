@@ -32,17 +32,22 @@ def load(loader, database, lookups, response):
     variantCount = 0
     for variant in lookups:
         variantCount += 1
-        if variant in response:
+        if variant in response: 
             if args.debug:
                 loader.log(("Lookup result for", variant + ': ', response[variant]), prefix="DEBUG")
+                
             if response[variant] is not None:
-                updateFlags = {'record_primary_key': response[variant]['record_primary_key'], 
-                                'is_adsp_variant': response[variant]['is_adsp_variant'],
-                                'adsp_qc': response[variant]['annotation']['ADSP_QC'] is not None}
-                if args.debug:
-                    loader.log(("Update flags:", updateFlags), prefix="DEBUG")
+                # variants may have multiple matches if a metaseq 
+                # matches multiple refsnps, so an array is returned by the lookup                
+                for hit in response[variant]:   
                     
-                loader.parse_variant(lookups[variant], updateFlags) 
+                    updateFlags = {'record_primary_key': hit['record_primary_key'], 
+                                    'is_adsp_variant': hit['is_adsp_variant'],
+                                    'adsp_qc': hit['annotation']['ADSP_QC'] is not None and args.version.lower() in hit['annotation']['ADSP_QC']}
+                    if args.debug:
+                        loader.log(("Update flags:", updateFlags), prefix="DEBUG")
+                        
+                    loader.parse_variant(lookups[variant], updateFlags) 
             else: 
                 loader.parse_variant(lookups[variant])
                     
@@ -98,7 +103,7 @@ def bulk_lookup(loader, lookups):
             if args.debug:
                 chunkNum += 1
                 loader.log(("Check lookups - performing chunk", xstr(chunkNum), "; size =", xstr(len(group))), prefix="DEBUG")
-            response = loader.variant_validator().bulk_lookup(group)
+            response = loader.variant_validator().bulk_lookup(group, firstHitOnly=False)
             finalResponse.update(response)
             
         if args.debug:
@@ -117,9 +122,8 @@ def generate_update_values(loader, entry, flags):
         loader.log(("Generate Update Values:", flags), prefix="DEBUG")
 
     recordPK = flags['record_primary_key'] if flags is not None else None
-    isAdspVariant = flags['is_adsp_variant'] if flags is not None else None
-    hasAdspQC = flags['adsp_qc'] if flags is not None else None
-        
+    isAdspVariant = flags['is_adsp_variant'] if flags is not None else False
+    hasAdspQC = flags['adsp_qc'] if flags is not None else False
     adspFlag = True if filter == 'PASS' else 'NULL'
             
     qcValues = {
@@ -136,7 +140,7 @@ def generate_update_values(loader, entry, flags):
         loader.log(("Infinity Found - String Version: " +  qcStr), prefix="ERROR")
         loader.log(print_dict(qcValues, pretty=True), prefix="ERROR")
         raise ValueError("Infinity found among QC scores")
-    
+        
     # returns recordPK, flags, update values dict
     return [recordPK, {'is_adsp_variant': isAdspVariant, 'update': args.updateExistingValues or not hasAdspQC}, 
             {'is_adsp_variant': adspFlag, 'adsp_qc': qcValues}]
