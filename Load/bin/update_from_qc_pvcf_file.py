@@ -43,7 +43,7 @@ def load(loader, database, lookups, response):
                     
                     updateFlags = {'record_primary_key': hit['record_primary_key'], 
                                     'is_adsp_variant': hit['is_adsp_variant'],
-                                    'adsp_qc': hit['annotation']['ADSP_QC'] is not None and args.version.lower() in hit['annotation']['ADSP_QC']}
+                                    'adsp_qc': hit['annotation']['adsp_qc'] is not None and args.version.lower() in hit['annotation']['adsp_qc']}
                     if args.debug:
                         loader.log(("Update flags:", updateFlags), prefix="DEBUG")
                         
