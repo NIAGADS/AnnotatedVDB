@@ -260,9 +260,13 @@ if __name__ == "__main__":
         update_cadd_scores_by_vcf()
 
     else:
-        chrList = args.chr.split(',') if not args.chr.startswith('all') \
-            else [c.value for c in Human if c.value not in ['X', 'Y', 'M', 'MT']] if args.chr == 'autosome' \
-                else [c.value for c in Human]
+        chrList = None
+        if args.chr not in ['all', 'autosome']:
+            chrList = args.chr.split(',')
+        elif args.chr == 'autosome':
+            chrList = [c.value for c in Human if c.value not in ['X', 'Y', 'M', 'MT']] 
+        else: 
+            chrList = [c.value for c in Human]
 
         if len(chrList) == 1:
             update_cadd_scores_by_query('db_chr' + xstr(chrList[0]), chromosome=xstr(chrList[0]))
