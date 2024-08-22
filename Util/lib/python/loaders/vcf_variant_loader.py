@@ -172,24 +172,23 @@ class VCFVariantLoader(VariantLoader):
         # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
         # see default
         recordPK, uFlags, uValues = self.generate_update_values(entry, flags)
-        
         isAdspVariant = None
-        if uFlags:
-            if 'is_adsp_variant' in 'uFlags':
-                isAdspVariant = uFlags['is_adsp_variant']
+        
+        if uFlags is not None:
+            if 'update' in uFlags and uFlags['update'] is False:
+                if self._debug:
+                    self.log((recordPK, "already has values for update fields; skipping"), prefix="DEBUG")
+                self.increment_counter('skipped')
+                return 'SKIPPED'
             
+            if 'is_adsp_variant' in 'uFlags':
+                isAdspVariant = uFlags['is_adsp_variant'] 
+                
+        
         if recordPK is None:
             if self._debug:
                 self.log(("Variant", self._current_variant.id, "not in DB, inserting."), prefix="DEBUG")
             return 'INSERT'
-        
-        if uFlags is not None:
-            if 'update' in uFlags:
-                if uFlags['update'] is False:
-                    if self._debug:
-                        self.log((recordPK, "already has values for update fields; skipping"), prefix="DEBUG")
-                    self.increment_counter('skipped')
-                    return 'SKIPPED'
         
         values = [recordPK]
         values.append('chr' + self._current_variant.chromosome)
@@ -200,7 +199,7 @@ class VCFVariantLoader(VariantLoader):
         
         for f in self.__update_fields:
             cValue = uValues[f]
-         
+
             if f in JSONB_UPDATE_FIELDS:
                 values.append(xstr(cValue))
             else:
