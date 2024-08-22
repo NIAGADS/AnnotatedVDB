@@ -18,8 +18,11 @@ from sys import stdout
 from concurrent.futures import ProcessPoolExecutor
 from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die, get_opener, chunker, disallowed2str
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from niagads.utils.string import xstr
+from niagads.utils.dict import print_dict
+from niagads.utils.sys import warning, print_args, die, get_opener
+from niagads.utils.list import chunker
+from niagads.db.postgres import Database
 
 from AnnotatedVDB.Util.loaders import VCFVariantLoader
 from AnnotatedVDB.Util.parsers import ChromosomeMap, VcfEntryParser

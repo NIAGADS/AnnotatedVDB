@@ -15,8 +15,10 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, die, print_dict, print_args
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from niagads.utils.string import xstr
+from niagads.utils.dict import print_dict
+from niagads.utils.sys import warning, print_args
+from niagads.db.postgres import Database
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser
 from AnnotatedVDB.Util.loaders import CADDUpdater
