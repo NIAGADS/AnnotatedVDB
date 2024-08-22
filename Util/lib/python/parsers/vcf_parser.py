@@ -186,7 +186,7 @@ class VcfEntryParser(object):
             return None
 
 
-    def get_info(self, key):
+    def get_info(self, key, default=None):
         """! get the INFO value associated with the key """
         self.__verify_entry()
         if 'info' not in self.__entry:
@@ -194,7 +194,7 @@ class VcfEntryParser(object):
         if key in self.__entry['info']:
             return self.__entry['info'][key]
         else:
-            return None
+            return default
         
         
     def get_frequencies(self, allele):
