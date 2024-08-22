@@ -90,7 +90,7 @@ class VariantLoader(object):
         self._log_file_handle = None if logFileName is None else open(logFileName, 'w') 
         self._verbose = verbose
         self._debug = debug
-        self._datasource = datasource.lower() 
+        self._datasource = datasource.lower() if datasource is not None else None
         
         self._alg_invocation_id = None
         self._pk_generator = None
