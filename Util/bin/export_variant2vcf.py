@@ -11,10 +11,8 @@ import os.path as path
 import random
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from psycopg2 import DatabaseError
 
 from niagads.utils.string import xstr
-from niagads.utils.dict import print_dict
 from niagads.utils.sys import warning, print_args, execute_cmd
 from niagads.utils.list import qw
 from niagads.utils.reg_ex import matches
