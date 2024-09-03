@@ -56,7 +56,7 @@ def run(directory:str, chromosome:str):
             warning("Processing " + chromosome, file=lfh, flush=True)
             warning("Executing query: " + SELECT_SQL.replace('%s', "'" + chromosome + "'"), file=lfh, flush=True)
             
-            selectCursor.itersize = 500000 
+            selectCursor.itersize = ITERATION_SIZE 
             selectCursor.execute(SELECT_SQL, [chromosome])
             validCount = 0
             variants = {}
