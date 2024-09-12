@@ -1,0 +1,27 @@
+var classdatabase_1_1variant_1_1VariantRecord =
+[
+    [ "__init__", "classdatabase_1_1variant_1_1VariantRecord.html#a9933cf8148e1930794e55e31fba376ae", null ],
+    [ "__exit__", "classdatabase_1_1variant_1_1VariantRecord.html#a5a45cbaefbbf8dff2eac23f057a73fb0", null ],
+    [ "__initialize_database", "classdatabase_1_1variant_1_1VariantRecord.html#ad6f2b9e3b90ff167b637d7aa9a654de0", null ],
+    [ "__validate_id_type", "classdatabase_1_1variant_1_1VariantRecord.html#a36a950b0c57acd5505500c6e76819ada", null ],
+    [ "bulk_lookup", "classdatabase_1_1variant_1_1VariantRecord.html#a10301baa7ef614bb66c56b75b20fb881", null ],
+    [ "close", "classdatabase_1_1variant_1_1VariantRecord.html#a8ab79e14e24aa440dcd1d9e822eb1f1c", null ],
+    [ "close_cursor", "classdatabase_1_1variant_1_1VariantRecord.html#af970e6e3afadd98106906849e5f1c446", null ],
+    [ "close_cursors", "classdatabase_1_1variant_1_1VariantRecord.html#a4210958ce849181567e5a1ae01fdbe95", null ],
+    [ "close_database", "classdatabase_1_1variant_1_1VariantRecord.html#aa9271045da52270f4f3094fd138a0db6", null ],
+    [ "exists", "classdatabase_1_1variant_1_1VariantRecord.html#a3bee8e3d5f3ffeb78eec2dd43ead61d8", null ],
+    [ "get_cursor", "classdatabase_1_1variant_1_1VariantRecord.html#ab5c2c20df19838efaf8f021df93a4052", null ],
+    [ "has_attr", "classdatabase_1_1variant_1_1VariantRecord.html#aa058a62ca66c22ee93e69164ac881890", null ],
+    [ "has_json_attr", "classdatabase_1_1variant_1_1VariantRecord.html#a58837e5b1025c9cbfcf3cece051f27ba", null ],
+    [ "initialize_cursor", "classdatabase_1_1variant_1_1VariantRecord.html#a4908b7ce33f04c1e778a6daeaf73966e", null ],
+    [ "initialize_named_cursor", "classdatabase_1_1variant_1_1VariantRecord.html#a0a425c8f8b23da1e12aa9373ee35dc3d", null ],
+    [ "legacy_pk", "classdatabase_1_1variant_1_1VariantRecord.html#a8f9be2f1d8a8f51e10253b9c159cc411", null ],
+    [ "rollback", "classdatabase_1_1variant_1_1VariantRecord.html#ac412064a6266aadf962039adb6e20e74", null ],
+    [ "use_legacy_pk", "classdatabase_1_1variant_1_1VariantRecord.html#aff8a037d3829b56f4653c12cea0088c5", null ],
+    [ "__cursors", "classdatabase_1_1variant_1_1VariantRecord.html#a8d71bf46084d8374622e76dafa70ae34", null ],
+    [ "__database", "classdatabase_1_1variant_1_1VariantRecord.html#a7780b18e4f740a4e10ecea35db218e52", null ],
+    [ "__legacy_pk", "classdatabase_1_1variant_1_1VariantRecord.html#a80933fbf684e40bfe4bc1a7311aee24d", null ],
+    [ "_debug", "classdatabase_1_1variant_1_1VariantRecord.html#a423f6d0446ed8a66c4b4ea32d5e5d775", null ],
+    [ "_verbose", "classdatabase_1_1variant_1_1VariantRecord.html#a5be3f265bf51b59828ff43f059290833", null ],
+    [ "logger", "classdatabase_1_1variant_1_1VariantRecord.html#a0b14e488ae28d98d262453f3e9cd6e4d", null ]
+];
