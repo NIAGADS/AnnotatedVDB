@@ -69,7 +69,7 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
-JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes"]
+JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes", "loss_of_function"]
 
 BOOLEAN_FIELDS = ["is_adsp_variant", "is_multi_allelic"]
 
@@ -90,7 +90,7 @@ class VariantLoader(object):
         self._log_file_handle = None if logFileName is None else open(logFileName, 'w') 
         self._verbose = verbose
         self._debug = debug
-        self._datasource = datasource.lower() 
+        self._datasource = datasource.lower() if datasource is not None else None
         
         self._alg_invocation_id = None
         self._pk_generator = None

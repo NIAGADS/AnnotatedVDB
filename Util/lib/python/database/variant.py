@@ -27,7 +27,7 @@
 
 import json
 import logging
-from niagads.utils.postgres_dbi import Database, raise_pg_exception
+from niagads.db.postgres import Database, raise_pg_exception
 from niagads.utils.string import xstr
 
 VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']

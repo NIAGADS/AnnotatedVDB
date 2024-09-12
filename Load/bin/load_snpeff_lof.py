@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
-Loads/Updates AnnotatedVDB from ADSP QC pVCF.  Flags novel variants for CADD update
-Loads each chromosome in parallel
+Loads/Updates AnnotatedVDB from SnpEff VCF output 
+extracts NMD / LOF information and stores it in the `loss_of_function` column
 """
 
 from __future__ import print_function
@@ -20,7 +20,7 @@ from psycopg2 import DatabaseError
 
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
-from niagads.utils.sys import warning, print_args, die, get_opener
+from niagads.utils.sys import warning, print_args, die, get_opener, is_binary_file
 from niagads.utils.list import chunker
 from niagads.db.postgres import Database
 
@@ -42,15 +42,10 @@ def load(loader, database, lookups, response):
             if response[variant] is not None:
                 # variants may have multiple matches if a metaseq 
                 # matches multiple refsnps, so an array is returned by the lookup                
-                for hit in response[variant]:   
-                    
-                    updateFlags = {'record_primary_key': hit['record_primary_key'], 
-                                    'is_adsp_variant': hit['is_adsp_variant'],
-                                    'adsp_qc': hit['annotation']['adsp_qc'] is not None and args.version.lower() in hit['annotation']['adsp_qc']}
-                    if args.debug:
-                        loader.log(("Update flags:", updateFlags), prefix="DEBUG")
-                        
-                    loader.parse_variant(lookups[variant], updateFlags) 
+                for hit in response[variant]: 
+                    loader.parse_variant(lookups[variant], 
+                        {'record_primary_key': hit['record_primary_key'],
+                        'loss_of_function': hit['annotation']['loss_of_function']}) 
             else: 
                 loader.parse_variant(lookups[variant])
                     
@@ -93,7 +88,7 @@ def log_load(loader, database):
                                 
 
 
-def bulk_lookup(loader, lookups):
+def bulk_lookup(loader: VCFVariantLoader, lookups):
     """ do the bulk lookup in batches of 200 or less to be faster """
     numLookups = len(lookups.keys())
     chunks = chunker(list(lookups.keys()), NUM_BULK_LOOKUPS) if numLookups > NUM_BULK_LOOKUPS else None
@@ -114,40 +109,68 @@ def bulk_lookup(loader, lookups):
         return finalResponse
             
 
-def generate_update_values(loader, entry, flags):
-    info = entry.get('info')
-    filter = entry.get('filter')
-    qual = entry.get('qual')
-    format = entry.get('format', raiseError=False) # set value to None if empty
-    release = loader.get_datasource() # ADSP release
+def parse_annotation_string(valueStr: str):
+    """
+    LOF=(SFI1|ENSG00000198089|30|0.17)
+    NMD=(PRAME|ENSG00000185686|14|0.57)
+    """
+    if valueStr is None:
+        return None
     
-    if loader.debug():
-        loader.log(("Generate Update Values:", flags), prefix="DEBUG")
+    returnVal = []
+    annotations = valueStr.split(',')
+    for a in annotations:
+        a = a.replace('(', '').replace(')','')
+        values = a.split('|')
+        returnVal.append(
+            {
+                'gene_symbol': values[0],
+                'gene_id': values[1],
+                'num_transcripts': int(values[2]),
+                'fraction_affected_transcripts': float(values[3])
+            }
+        )
+        
+    return returnVal
 
-    recordPK = flags['record_primary_key'] if flags is not None else None
-    isAdspVariant = flags['is_adsp_variant'] if flags is not None else False
-    hasAdspQC = flags['adsp_qc'] if flags is not None else False
-    adspFlag = True if filter == 'PASS' else 'NULL'
-            
-    qcValues = {
-        release : {
-            "info": info,
-            "filter": filter,
-            "qual": qual,
-            "format": format
-        }
-    }
+def generate_update_values(loader: VCFVariantLoader, entry: VcfEntryParser, flags):
+    # TODO: adapt for parsing LOF / NMD from SnpEff output
+    # remove is_adsp_variant updates
+
+    if flags is None: # should not happen
+        raise ValueError('Variant not found in the database')
+        
+    recordPK = flags['record_primary_key'] 
+    existingValues = flags['loss_of_function']
     
-    qcStr = xstr(qcValues)
-    if 'Infinity' in qcStr:
-        loader.log(("Infinity Found - String Version: " +  qcStr), prefix="ERROR")
-        loader.log(print_dict(qcValues, pretty=True), prefix="ERROR")
-        raise ValueError("Infinity found among QC scores")
+    lof = parse_annotation_string(entry.get_info('LOF'))
+    nmd = parse_annotation_string(entry.get_info('NMD'))
+    
+    updateValues = {}
+    canUpdate = False
+    
+    if existingValues is not None: # ? can we overwrite
+        if args.udpateExisting:
+            if lof is not None:
+                updateValues.update({'LOF':lof})
+                canUpdate = True
+            if nmd is not None:
+                updateValues.update({'NMD': nmd})
+                canUpdate = True
+    else:
+        if lof is not None:
+            updateValues.update({'LOF':lof})
+            canUpdate = True
+        if nmd is not None:
+            updateValues.update({'NMD': nmd})
+            canUpdate = True
+        
+    if args.debug and args.verbose:
+        loader.log(("Can Update?", canUpdate), "DEBUG")
+        loader.log(("Update Values", updateValues), "DEBUG")
         
     # returns recordPK, flags, update values dict
-    return [recordPK, {'is_adsp_variant': isAdspVariant, 'update': args.updateExistingValues or not hasAdspQC}, 
-            {'is_adsp_variant': adspFlag, 'adsp_qc': qcValues}]
-
+    return [recordPK, {'update': canUpdate }, {'loss_of_function': updateValues}]
 
 
 def initialize_loader(logFilePrefix, chrom=None):
@@ -162,7 +185,7 @@ def initialize_loader(logFilePrefix, chrom=None):
     warning("Logging to", lfn)
     
     try:
-        loader = VCFVariantLoader(args.version, logFileName=lfn, verbose=args.verbose, debug=args.debug) # don't want to update is_adsp_flags based on datasource but PASS status
+        loader = VCFVariantLoader(None, logFileName=lfn, verbose=args.verbose, debug=args.debug) # don't want to update is_adsp_flags based on datasource but PASS status
 
         loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
 
@@ -175,7 +198,7 @@ def initialize_loader(logFilePrefix, chrom=None):
         if chrom is not None:
             loader.set_chromosome(chrom)
 
-        updateFields = ["is_adsp_variant", "adsp_qc"]
+        updateFields = ["loss_of_function"]
         loader.set_update_fields(updateFields)
         loader.build_update_sql()
         loader.initialize_copy_sql(copyFields=updateFields) # use default copy fields
@@ -200,7 +223,7 @@ def initialize_loader(logFilePrefix, chrom=None):
 
 def load_annotation(fileName, logFilePrefix, chrom=None):
     """! parse over a VCF file; bulk load using COPY """
- 
+
     loader = initialize_loader(logFilePrefix, chrom)
     loader.log('Parsing ' + fileName, prefix="INFO")
     
@@ -215,7 +238,8 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
-        opener = get_opener(args.fileName, compressed=True, binary=True)
+        isBinaryFile = is_binary_file(args.fileName)
+        opener = get_opener(args.fileName, binary=isBinaryFile)
         if args.debug:
             loader.log('Preparing to do updates/inserts', prefix="DEBUG")
         with opener(fileName, 'r') as fhandle, database.cursor() as cursor:
@@ -224,23 +248,26 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
             lineCount = 0
             variantCount = 0
             for line in fhandle: # iter(mappedFile.readline, b""):
-                line = line.decode("utf-8")  # in python 3, mapped file is a  binary IO object
+                line = line.decode("utf-8") if isBinaryFile else line
                 line = line.rstrip()
                 if line.startswith("#"): # skip comments
                     previousLine = line
-                    continue                    
+                    continue           
                 
                 if previousLine is not None and previousLine.startswith("#") and vcfHeaderFields is None: 
                     # header, b/c this line does not start with "#"
                     vcfHeaderFields = previousLine.split('\t')
                     previousLine = None
                 
-                lineCount += 1 
-                if args.debug and lineCount % 10000 == 0:
-                    loader.log(("Read", lineCount, "lines"), prefix="DEBUG")
-                    
+                lineCount += 1          
+                                
+                # no point in a lookup if no LOF/NMD info
+                if ';LOF=' not in line and ';NMD=' not in line:
+                    continue
+
                 entry = VcfEntryParser(line, vcfHeaderFields, debug=True, loader=loader)
                 currentVariant = entry.get_variant()
+            
                 for alt in currentVariant['alt_alleles']:                  
                     if not resume:
                         if currentVariant['id'] == args.resumeAfter:
@@ -251,13 +278,16 @@ def load_annotation(fileName, logFilePrefix, chrom=None):
                         break
                     
                     variantCount += 1
+                    if args.debug and variantCount % 10000 == 0:
+                        loader.log(("Found", variantCount, " / ", lineCount, " variants / lines with annotation"), prefix="DEBUG")
+                    
                     id = ':'.join((xstr(currentVariant['chromosome']),
                         xstr(currentVariant['position']), 
                         currentVariant['ref_allele'],
                         alt))
                     lookups[id] = entry
                 
-                if lineCount % args.numLookups == 0 and resume:                
+                if variantCount % args.numLookups == 0 and resume:                
                     response = bulk_lookup(loader, lookups)
                     load(loader, database, lookups, response)  
                     del lookups
@@ -326,8 +356,8 @@ def validate_args():
                 die("Loading by chromosome, please supply path to directory containing the VEP results")
             if not args.extension:
                 die("Loading by chromosome, please provide file extension. Assume file names are like chr1.extension / TODO: pattern matching")
-   
-         
+
+
 def get_input_file_name(chrm):
     """ find the file that matches the chromosome & specified extension """  
     pattern = path.join(args.dir, '*chr' + xstr(chrm) + args.extension)
@@ -365,7 +395,6 @@ if __name__ == "__main__":
                         help="log database copy time / may print development debug statements")
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
-    parser.add_argument('--version', required=True, help='release version, e.g., 17K')
     parser.add_argument('--updateExistingValues', action="store_true",
                         help="update fields even if value exists; if flag not specificed will skip records that already have values")
     parser.add_argument('--numLookups', default=50000, type=int,

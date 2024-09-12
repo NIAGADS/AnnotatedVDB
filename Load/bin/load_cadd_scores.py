@@ -15,8 +15,10 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, die, print_dict, print_args
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from niagads.utils.string import xstr
+from niagads.utils.dict import print_dict
+from niagads.utils.sys import warning, print_args
+from niagads.db.postgres import Database
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser
 from AnnotatedVDB.Util.loaders import CADDUpdater
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     parser.add_argument('--vcfFile', 
                         help="if file is specified, updates only the listed variants; otherwise updates all variants in the database for the specified chromosome; expects full path to a VCF file")
     parser.add_argument('--chr', default='all',
-                        help="chromosome; comma separated list of one or more chromosomes or 'all'; ignored if --file is specified")
+                        help="chromosome; comma separated list of one or more chromosomes or 'all' or 'autosome'; ignored if --file is specified")
     parser.add_argument('--maxWorkers', type=int, default=5)
     parser.add_argument('--commitAfter', type=int, default=500)
     parser.add_argument('--logAfter', type=int, default=500000)
@@ -260,8 +262,13 @@ if __name__ == "__main__":
         update_cadd_scores_by_vcf()
 
     else:
-        chrList = args.chr.split(',') if not args.chr.startswith('all') \
-            else [c.value for c in Human]
+        chrList = None
+        if args.chr not in ['all', 'autosome']:
+            chrList = args.chr.split(',')
+        elif args.chr == 'autosome':
+            chrList = [c.value for c in Human if c.value not in ['X', 'Y', 'M', 'MT']] 
+        else: 
+            chrList = [c.value for c in Human]
 
         if len(chrList) == 1:
             update_cadd_scores_by_query('db_chr' + xstr(chrList[0]), chromosome=xstr(chrList[0]))

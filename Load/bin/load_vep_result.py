@@ -28,8 +28,8 @@ from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
 # ADSP_VARIANT_UPDATE_SQL = "UPDATE AnnotatedVDB.Variant SET is_adsp_variant = true WHERE record_primary_key = %s and chromosome = %s"
 ADSP_VARIANT_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET is_adsp_variant = true 
-  FROM (VALUES %s) AS d(record_primary_key, chromosome)
-  WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
+    FROM (VALUES %s) AS d(record_primary_key, chromosome)
+    WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
 
 def initialize_loader(logFilePrefix):
     """! initialize loader """
@@ -80,9 +80,10 @@ def initialize_loader(logFilePrefix):
 def load_annotation(fileName, logFilePrefix):
     """! parse over a JSON file, extract position, frequencies,
     ids, and ADSP-ranked most severe consequence; bulk load using COPY """
- 
+
     loader = initialize_loader(logFilePrefix)
     loader.log('Parsing ' + fileName, prefix="INFO")
+    loader.log('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping', prefix='INFO')
     
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
@@ -93,7 +94,9 @@ def load_annotation(fileName, logFilePrefix):
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
-        with open(fileName, 'r') as fhandle, database.cursor() as cursor:
+        with open(fileName, 'r') as fhandle, database.cursor() as cursor, \
+            open(fileName + ".mapping", 'w') as mfh:
+                
             loader.set_cursor(cursor)
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
@@ -105,7 +108,11 @@ def load_annotation(fileName, logFilePrefix):
                             loader.log('Processing new copy object', prefix="DEBUG")
                         tstart = datetime.now()
                             
-                    loader.parse_variant(line.rstrip())
+                    # save the primary key map to a file as a record of new inserts
+                    primaryKeyMapping = loader.parse_variant(line.rstrip())
+                    for metaseqId, pk in primaryKeyMapping.items():
+                        print(metaseqId, pk, sep='\t', file=mfh, flush=True)
+                        
                     lineCount += 1
                         
                     if not loader.resume_load():
@@ -159,7 +166,7 @@ def load_annotation(fileName, logFilePrefix):
                                 tend = datetime.now()
                                 loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
                                 loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
-                   
+
                         if args.test:
                             break
 
@@ -184,7 +191,7 @@ def load_annotation(fileName, logFilePrefix):
                 
             message += "; up to = " + loader.get_current_variant_id()  
             loader.log(message, prefix=messagePrefix)
-                  
+    
             loader.log("DONE", prefix="INFO")
             
             # summarize new consequences
@@ -266,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument('--resumeAfter',
                         help="variant after which to resume load (log lists lasts committed variant)")
     parser.add_argument('-c', '--chr', 
-                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
+                        help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` , `autosome` / required for parallel load"),
     parser.add_argument('--fileName',
                         help="full path of file to load, if --dir option is provided, will be ignored")
     parser.add_argument('--commitAfter', type=int, default=500,
@@ -305,6 +312,8 @@ if __name__ == "__main__":
                 for c in chrList:
                     if args.chr == 'allNoM' and c == 'M':
                         continue 
+                    if args.chr == 'autosome' and c in ['X', 'Y', 'M', 'MT']:
+                        continue
                     warning("Create and start thread for chromosome:", xstr(c))
                     inputFile = get_input_file_name(c)
                     executor.submit(load_annotation, fileName=inputFile, logFilePrefix='chr' + xstr(c))

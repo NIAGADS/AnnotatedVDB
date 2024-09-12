@@ -130,7 +130,7 @@ class VariantPKGenerator(object):
         # transform metaseq id to gnomad id (replace ':' with '-')
         # using gnomad b/c it accepts chrNum instead of refseq accession (required by SPDI)
         gnomadExpr = metaseqId.replace(':', '-')
-        alleleDict = self._translator._from_gnomad(gnomadExpr, self._genomeBuild)
+        alleleDict = self._translator._from_gnomad(gnomadExpr, assembly_name=self._genomeBuild)
       
         if serialize:
             return ga4gh_serialize(alleleDict)

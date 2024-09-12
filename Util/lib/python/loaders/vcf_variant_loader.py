@@ -136,7 +136,8 @@ class VCFVariantLoader(VariantLoader):
         updateString = ""   
         for f in fields:
             if f in JSONB_UPDATE_FIELDS:
-                updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ',' + NBSP 
+                # updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ',' + NBSP 
+                updateString += ' '.join((f,  '=', 'jsonb_merge(COALESCE(v.' + f, ",'{}'::jsonb),", 'd.' + f + '::jsonb)')) + ',' + NBSP # e.g. v.gwas_flags = jsonb_merge(v.gwas_flags, d.gwas_flags::jsonb)
                 # e.g. v.gwas_flags = v.gwas_flags || d.gwas_flags::jsonb
             elif f in BOOLEAN_FIELDS:
                 updateString += ' '.join((f,  '=', 'd.' + f + '::BOOLEAN')) + ',' + NBSP
@@ -171,24 +172,23 @@ class VCFVariantLoader(VariantLoader):
         # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
         # see default
         recordPK, uFlags, uValues = self.generate_update_values(entry, flags)
-        
         isAdspVariant = None
-        if uFlags:
-            if 'is_adsp_variant' in 'uFlags':
-                isAdspVariant = uFlags['is_adsp_variant']
+        
+        if uFlags is not None:
+            if 'update' in uFlags and uFlags['update'] is False:
+                if self._debug:
+                    self.log((recordPK, "already has values for update fields; skipping"), prefix="DEBUG")
+                self.increment_counter('skipped')
+                return 'SKIPPED'
             
+            if 'is_adsp_variant' in 'uFlags':
+                isAdspVariant = uFlags['is_adsp_variant'] 
+                
+        
         if recordPK is None:
             if self._debug:
                 self.log(("Variant", self._current_variant.id, "not in DB, inserting."), prefix="DEBUG")
             return 'INSERT'
-        
-        if uFlags is not None:
-            if 'update' in uFlags:
-                if uFlags['update'] is False:
-                    if self._debug:
-                        self.log((recordPK, "already has values for update fields; skipping"), prefix="DEBUG")
-                    self.increment_counter('skipped')
-                    return 'SKIPPED'
         
         values = [recordPK]
         values.append('chr' + self._current_variant.chromosome)
@@ -199,7 +199,7 @@ class VCFVariantLoader(VariantLoader):
         
         for f in self.__update_fields:
             cValue = uValues[f]
-         
+
             if f in JSONB_UPDATE_FIELDS:
                 values.append(xstr(cValue))
             else:
@@ -242,6 +242,8 @@ class VCFVariantLoader(VariantLoader):
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
         
+        primaryKeyMapping = {}
+        
         for alt in variant.alt_alleles:              
             if alt == '.':
                 self.log(("Skipping variant", self._current_variant.id, "no alt allele (alt = .)"), prefix="WARNING")
@@ -265,7 +267,8 @@ class VCFVariantLoader(VariantLoader):
                 
             # other wise -- new variant load
             recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-                
+            primaryKeyMapping.update({annotator.get_metaseq_id(): recordPK})
+            
             if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
                 if self.is_duplicate(recordPK, 'PRIMARY_KEY'):
                     self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
@@ -301,13 +304,15 @@ class VCFVariantLoader(VariantLoader):
             
             if self.is_adsp():
                 copyValues.append(xstr(True)) # is_adsp_variant
-                         
+                
             if self._debug:
                 self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
                 self.log(("COPY values", copyValues), prefix="DEBUG")
                 
             self.add_copy_str('#'.join(copyValues))
             self.increment_counter('variant')
+            
+        return primaryKeyMapping
         
         
     def parse_variant(self, line, flags=None):
@@ -326,6 +331,8 @@ class VCFVariantLoader(VariantLoader):
             self.log(str(err), prefix="ERROR")
             raise err
         
+        variantPrimaryKeyMapping = None
+        
         try:
             self.increment_counter('line')
             entry = VcfEntryParser(line, self.vcf_header_fields()) if isinstance(line, str) else line # assume vcfEntry was passed
@@ -342,13 +349,16 @@ class VCFVariantLoader(VariantLoader):
             
             if self.is_dbsnp() and self.skip_existing():
                 if self.is_duplicate(self._current_variant.ref_snp_id, 
-                                     'REFSNP', 'chr' + self._current_variant.chromosome):
+                        'REFSNP', 'chr' + self._current_variant.chromosome):
                     self.increment_counter('skipped')
                     return None
             
             # iterate over alleles
-            self.__parse_alt_alleles(entry, flags)
+            variantPrimaryKeyMapping = self.__parse_alt_alleles(entry, flags)
             
         except Exception as err:
             self.log(str(err), prefix="ERROR")
             raise err
+        
+        finally:
+            return variantPrimaryKeyMapping

@@ -140,7 +140,7 @@ class VariantAnnotator(object):
         LONG = True
         
         position = self.__position
-         
+
         refLength = len(self.__ref)
         altLength = len(self.__alt)
 
@@ -148,7 +148,6 @@ class VariantAnnotator(object):
         nRefLength = len(normRef)
         nAltLength = len(normAlt)
         normRef, normAlt = self.__normalize_alleles(True) # display version (- for empty string)
-        
 
         endLocation = self.infer_variant_end_location()
 
@@ -156,7 +155,11 @@ class VariantAnnotator(object):
             'location_start': position,
             'location_end': position
         }
-     
+        
+        normalizedMetaseqId = ':'.join((xstr(self.__chrom), xstr(self.__position), normRef, normAlt)) 
+        if normalizedMetaseqId != self.__metaseqId:
+            attributes.update({'normalized_metaseq_id': normalizedMetaseqId})
+
         if (refLength == 1 and altLength == 1): # SNV
             attributes.update({
                 'variant_class': "single nucleotide variant",

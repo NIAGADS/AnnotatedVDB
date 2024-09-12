@@ -115,12 +115,13 @@ class TextVariantLoader(VariantLoader):
         
     def build_update_sql(self, useLegacyPk=False):
         """ generate update sql """
-         
+
         fields = self.__update_fields
         updateString = ""
         for f in fields:
             if f in JSONB_UPDATE_FIELDS:
-                updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ', ' # e.g. v.gwas_flags = v.gwas_flags || d.gwas_flags::jsonb
+                # updateString += ' '.join((f,  '=', 'COALESCE(v.' + f, ",'{}'::jsonb)", '||', 'd.' + f + '::jsonb')) + ', ' # e.g. v.gwas_flags = v.gwas_flags || d.gwas_flags::jsonb
+                updateString += ' '.join((f,  '=', 'jsonb_merge(COALESCE(v.' + f, ",'{}'::jsonb),", 'd.' + f + '::jsonb)')) + ', ' # e.g. v.gwas_flags = jsonb_merge(v.gwas_flags, d.gwas_flags::jsonb)
             elif f == 'bin_index':
                 updateString += ' '.join((f,  '=', 'd.' + f + '::ltree')) + ', '
             else:
