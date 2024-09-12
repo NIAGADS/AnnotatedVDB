@@ -168,6 +168,7 @@ class VEPVariantLoader(VariantLoader):
         # as this will remove the info for all alleles (frequencies, consequences)
         cleanResult = self.__clean_result() 
         
+        primaryKeyMapping = {}
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
@@ -211,6 +212,7 @@ class VEPVariantLoader(VariantLoader):
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
 
             recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
+            primaryKeyMapping.update({annotator.get_metaseq_id: recordPK})
     
             copyValues = ['chr' + xstr(variant.chromosome),
                         recordPK,
@@ -235,6 +237,8 @@ class VEPVariantLoader(VariantLoader):
                 self.log(copyValues, prefix="DEBUG")
             self.add_copy_str('#'.join(copyValues))
 
+        return primaryKeyMapping
+
     
     def parse_variant(self, line):
         """! parse & load single line from file 
@@ -253,11 +257,13 @@ class VEPVariantLoader(VariantLoader):
         
         newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
         
+        variantPrimaryKeyMapping = None
+        
         try:
             self.increment_counter('line')
             resultJson = json.loads(line)
             self.__vep_parser.set_annotation(deepcopy(resultJson))
- 
+
             entry = VcfEntryParser(self.__vep_parser.get('input'), identityOnly=self.is_adsp())
                 
             if not self.resume_load():
@@ -293,11 +299,13 @@ class VEPVariantLoader(VariantLoader):
                     prefix="WARNING")
     
             # iterate over alleles
-            self.__parse_alt_alleles(entry)
+            variantPrimaryKeyMapping = self.__parse_alt_alleles(entry)
             
         except Exception as err:
             self.log(str(err), prefix="ERROR")
             raise err
             
+        finally:
+            return variantPrimaryKeyMapping
     
     

@@ -54,7 +54,6 @@ def initialize_loader(logFilePrefix):
         loader.initialize_copy_sql() # use default copy fields
         loader.set_chromosome_map(chrmMap)
         
-
         loader.set_skip_existing(args.skipExisting, args.gusConfigFile) # initialize validator db connection
         
         if args.failAt:
@@ -73,6 +72,7 @@ def load_annotation(fileName, logFilePrefix):
  
     loader = initialize_loader(logFilePrefix)
     loader.log('Parsing ' + fileName, prefix="INFO")
+    loader.log('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping', prefix='INFO')
     
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
@@ -84,7 +84,8 @@ def load_annotation(fileName, logFilePrefix):
         database = Database(args.gusConfigFile)
         database.connect()
         opener = get_opener(args.fileName)
-        with opener(fileName, 'r') as fhandle, database.cursor() as cursor:
+        with opener(fileName, 'r') as fhandle, database.cursor() as cursor, \
+            open(fileName + ".mapping", 'w') as mfh:
             loader.set_cursor(cursor)
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             lineCount = 0
@@ -99,7 +100,10 @@ def load_annotation(fileName, logFilePrefix):
                         loader.log('Processing new copy object', prefix="DEBUG")
                     tstart = datetime.now()
                         
-                loader.parse_variant(line.rstrip())
+                primaryKeyMapping = loader.parse_variant(line.rstrip())
+                for metaseqId, pk in primaryKeyMapping.items():
+                    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
+               
                 lineCount += 1
                     
                 if not loader.resume_load():
