@@ -26,10 +26,6 @@ from AnnotatedVDB.Util.loaders import VEPVariantLoader
 from AnnotatedVDB.Util.parsers import ChromosomeMap
 from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
-# ADSP_VARIANT_UPDATE_SQL = "UPDATE AnnotatedVDB.Variant SET is_adsp_variant = true WHERE record_primary_key = %s and chromosome = %s"
-ADSP_VARIANT_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET is_adsp_variant = true 
-    FROM (VALUES %s) AS d(record_primary_key, chromosome)
-    WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
 
 def initialize_loader(logFilePrefix):
     """! initialize loader """
@@ -54,17 +50,15 @@ def initialize_loader(logFilePrefix):
         loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
+        loader.initialize_update_sql()
         
         loader.set_chromosome_map(chrmMap)
+        loader.initialize_variant_validator(args.gusConfigFile)
         
-        if loader.is_adsp():
-            loader.initialize_variant_validator(args.gusConfigFile)
-            loader.set_update_sql(ADSP_VARIANT_UPDATE_SQL)
-        
-        if args.skipExisting:
+        if not args.updateExisting:
             loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
-            if args.logSkips:
-                loader.log_skips()
+        if args.logDuplicates:
+            loader.log_duplicates()
             
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
@@ -91,6 +85,7 @@ def load_annotation(fileName, logFilePrefix):
         loader.set_resume_after_variant(args.resumeAfter)
 
     testComplete = False # flag if test is complete
+    updateCount = 0
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -141,8 +136,9 @@ def load_annotation(fileName, logFilePrefix):
                             loader.log(message, prefix="DEBUG") 
                         
                         loader.load_variants()
-                        if args.datasource.lower() == 'adsp':
+                        if loader.get_count('update') > updateCount:
                             loader.update_variants()
+                            updateCount = loader.get_count('update')
 
                         message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
                         messagePrefix = "COMMITTED"
@@ -286,10 +282,10 @@ if __name__ == "__main__":
                         help="log database copy time / may print development debug statements")
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
-    parser.add_argument('--skipExisting', action='store_true',
-                        help="check each variant against the database, load non-duplicates only -- time consuming")
-    parser.add_argument('--logSkips', action='store_true',
-                        help="log skipped variants")
+    parser.add_argument('--updateExisting', action='store_true',
+                        help="updates existing variants; if not specified skips them")
+    parser.add_argument('--logDuplicates', action='store_true',
+                        help="log duplicate/existing variants")
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")

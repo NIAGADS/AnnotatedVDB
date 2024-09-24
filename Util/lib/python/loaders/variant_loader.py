@@ -42,6 +42,7 @@ import json
 
 from copy import deepcopy
 from io import StringIO
+from sys import stderr
 
 from psycopg2.extras import execute_values
 
@@ -87,7 +88,7 @@ class VariantLoader(object):
             @returns                   An instance of the VariantLoader class with initialized log, counters and copy buffer
         """
         # single underscore so protected / child classes can access
-        self._log_file_handle = None if logFileName is None else open(logFileName, 'w') 
+        self._log_file_handle = None if logFileName is None else stderr if logFileName == 'stderr' else open(logFileName, 'w') 
         self._verbose = verbose
         self._debug = debug
         self._datasource = datasource.lower() if datasource is not None else None

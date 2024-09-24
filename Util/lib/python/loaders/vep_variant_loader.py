@@ -43,8 +43,10 @@ from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser, CONSEQUENCE_TYPES
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
-from AnnotatedVDB.Util.loaders import VariantLoader
+from AnnotatedVDB.Util.loaders import VariantLoader, DEFAULT_COPY_FIELDS, JSONB_UPDATE_FIELDS
 from AnnotatedVDB.Util.database import VARIANT_ID_TYPES
+
+NBSP = " " # for multi-line sql
 
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
@@ -138,17 +140,6 @@ class VEPVariantLoader(VariantLoader):
         
         # update the alleleFreq dict, taking into account nestedness
         return deep_update(alleleFreqs, alleleGMAFs)
-    
-    
-    def __add_adsp_update_statement(self, recordPK, chromosome):
-        """ add update is_adsp_variant to update buffer """
-        chrm = 'chr' + xstr(chromosome)
-        values = (recordPK, chrm)
-        self._update_buffer.append(values)
-        # updateStr = "UPDATE AnnotatedVDB.Variant SET " \
-        #    + "is_adsp_variant = true WHERE record_primary_key = '"  + recordPK + "' " \
-        #    + "AND chromosome = '" + chrm + "'" # incl chromosome so it uses an index
-        # self._update_buffer.write(updateStr + ';')
         
     
     def __parse_alt_alleles(self, vcfEntry):
@@ -171,31 +162,19 @@ class VEPVariantLoader(VariantLoader):
         primaryKeyMapping = {}
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
-            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
+            update = False
             
-            if not self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)                   
+            if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+                if self._log_skips:
+                    self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")
+                if not self.skip_existing():
+                    self.increment_counter('update')
+                    update = True
+                else: 
                     self.increment_counter('duplicates')
-                    if self._log_skips:
-                        self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")
                     continue
-
-            if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
-                lookupResult = self.has_attribute('is_adsp_variant', annotator.get_metaseq_id(), 'METASEQ', returnVal=True)
-                if lookupResult is not None: # not in db
-                    recordPK = lookupResult[0]
-                    isAdspVariant = lookupResult[1]
-                    if recordPK and isAdspVariant is None:
-                        self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
-                        self.increment_counter('update')
-                    else:
-                        self.increment_counter('skipped') # already flagged
-                        self.increment_counter('duplicates')
-                        if self._log_skips:
-                            self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")                            
-                        if self._debug:
-                            self.log(("Is Known ADSP Variant?", annotator.get_metaseq_id(), recordPK, isAdspVariant), prefix="DEBUG")
-                    continue
+                
             
             normRef, normAlt = annotator.get_normalized_alleles()
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
@@ -235,9 +214,47 @@ class VEPVariantLoader(VariantLoader):
             if self._debug:
                 self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
                 self.log(copyValues, prefix="DEBUG")
-            self.add_copy_str('#'.join(copyValues))
+            if update:
+                self._update_buffer.append(copyValues)
+            else: 
+                self.add_copy_str('#'.join(copyValues))
 
         return primaryKeyMapping
+    
+    
+    def initialize_update_sql(self):
+        """ generate update sql """
+
+        fields = DEFAULT_COPY_FIELDS
+        if self.is_adsp():
+            fields.append('is_adsp_variant')
+            
+        updateString = ""
+        for f in fields:
+            if f in JSONB_UPDATE_FIELDS:
+                updateString += ' '.join((f,  '=', 'jsonb_merge(COALESCE(v.' + f, ",'{}'::jsonb),", 'd.' + f + '::jsonb)')) + ', ' # e.g. v.gwas_flags = jsonb_merge(v.gwas_flags, d.gwas_flags::jsonb)
+            elif f == 'bin_index':
+                updateString += ' '.join((f,  '=', 'd.' + f + '::ltree')) + ', '
+            else:
+                updateString += ' '.join((f,  '=', 'd.' + f)) + ', '
+        
+        updateString = updateString.rstrip(', ') + NBSP
+        
+        if self.is_adsp():
+            fields.append('is_adsp_variant')
+            updateString += ", v.is_adsp_variant = d.is_adsp_variant" + NBSP
+
+        fields = ['record_primary_key', 'chromosome'] + fields
+        schema = "AnnotatedVDB"
+        sql = "UPDATE " + schema + ".Variant v SET" + NBSP + updateString \
+            + "FROM (VALUES %s) AS d(" + ','.join(fields) + ")" + NBSP \
+            + "WHERE v.chromosome = d.chromosome" + NBSP \
+            + "AND v.record_primary_key = d.record_primary_key"
+        
+        self.set_update_sql(sql)
+        if self._debug:        
+            self.log("Update SQL: " + self._update_sql, prefix="DEBUG")
+            
 
     
     def parse_variant(self, line):
@@ -245,7 +262,7 @@ class VEPVariantLoader(VariantLoader):
         @param line             the VEP result in string form
         @returns copy string for db load 
         """
-        if self.is_adsp() and self._variant_validator is None:
+        if self._variant_validator is None:
             err = UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants");
             self.log(str(err), prefix="ERROR")
             raise err

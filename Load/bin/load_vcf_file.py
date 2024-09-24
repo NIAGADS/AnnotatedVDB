@@ -17,7 +17,7 @@ import csv
 from datetime import datetime
 from os import path
 from sys import stdout
-import multiprocessing
+
 from concurrent.futures import ProcessPoolExecutor
 from psycopg2 import DatabaseError
 
@@ -32,12 +32,14 @@ from AnnotatedVDB.Util.enums import HumanChromosome as Human
 def initialize_loader(logFilePrefix):
     """! initialize loader """
 
-    lfn = xstr(logFilePrefix)
-    if args.resumeAfter:
-        lfn += '_resume_' + args.resumeAfter 
-    if args.failAt:
-        lfn += '_fail_' + args.failAt.replace(':', '-')
-    lfn += '.log'
+    lfn = "stderr"
+    if not args.log2stderr:
+        lfn = xstr(logFilePrefix)
+        if args.resumeAfter:
+            lfn += '_resume_' + args.resumeAfter 
+        if args.failAt:
+            lfn += '_fail_' + args.failAt.replace(':', '-')
+        lfn += '.log'
     warning("Logging to", lfn)
     
     try:
@@ -276,6 +278,8 @@ if __name__ == "__main__":
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
+    parser.add_argument('--log2stderr', action="store_true")
+    
     args = parser.parse_args()
 
     validate_args()
