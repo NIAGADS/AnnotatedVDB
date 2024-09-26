@@ -28,10 +28,16 @@ from AnnotatedVDB.Util.loaders import CADDUpdater
 
 SELECT_SQL = "SELECT record_primary_key, metaseq_id, cadd_scores FROM AnnotatedVDB.Variant WHERE chromosome = %s"
 
+LOGGER = logging.getLogger(__name__)
+
 def initialize_logger(fileName):
+    
+    for handler in logging.root.handlers[:]: # vrs-logging is getting the way
+        logging.root.removeHandler(handler)
+    logFileName = fileName + '-load-vef.log' 
     logHandler = logging.StreamHandler() if args.log2stderr \
         else ExitOnCriticalExceptionHandler(
-                filename=fileName + '-load-cadd.log',
+                filename=logFileName,
                 mode='w',
                 encoding='utf-8',
             )
@@ -48,13 +54,13 @@ def initialize_loader(fileName):
     """! initialize loader """
 
     try:
-        logFileHandler = initialize_logger(fileName)
-        loader = CADDUpdater(args.databaseDir, logFileHandler=logFileHandler, verbose=args.verbose, debug=args.debug)
+        initialize_logger(fileName)
+        loader = CADDUpdater(args.databaseDir, verbose=args.verbose, debug=args.debug)
 
-        loader.logger.info("Parameters: %s", print_dict(vars(args), pretty=True))
+        LOGGER.info("Parameters: %s", print_dict(vars(args), pretty=True))
 
         loader.set_algorithm_invocation('load_cadd_scores', print_args(args, False))
-        loader.logger('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
+        LOGGER('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         
@@ -75,7 +81,7 @@ def update_cadd_scores_by_query(chromosome=None, querySql=None):
     
     if querySql is None:
         querySql = SELECT_SQL
-    loader.logger.info('Updating by query: ' + querySql)
+    LOGGER.info('Updating by query: ' + querySql)
 
     try: 
         database = Database(args.gusConfigFile)
@@ -94,21 +100,21 @@ def update_cadd_scores_by_query(chromosome=None, querySql=None):
                         
             loader.set_cursor(updateCursor)            
             if chromosome is None:
-                loader.logger.info("Executing query: " + querySql)
+                LOGGER.info("Executing query: " + querySql)
                 selectCursor.execute(querySql)
             else:            
-                loader.logger.info("Executing query: " + querySql.replace('%s', "'" + chrm + "'"))
+                LOGGER.info("Executing query: " + querySql.replace('%s', "'" + chrm + "'"))
                 selectCursor.execute(querySql, [chrm])
                 
             for record in selectCursor:     
                 recordCount += 1
                 if args.debug and args.veryVerbose:
-                    loader.logger.debug("Record: %s", print_dict(record))
+                    LOGGER.debug("Record: %s", print_dict(record))
                     
                 if record['cadd_scores'] is not None:
                     loader.increment_counter('skipped')
                     if args.debug and args.veryVerbose:
-                        loader.logger.debug("Skipped %s", record['record_primary_key'])
+                        LOGGER.debug("Skipped %s", record['record_primary_key'])
                 else: 
                     loader.set_current_variant(record)
                     loader.buffer_variant()
@@ -129,7 +135,7 @@ def update_cadd_scores_by_query(chromosome=None, querySql=None):
                     
                     messagePrefix = "COMMITTED" if args.commit else "ROLLING BACK"
                     
-                    loader.logger.info("%s: %s", messagePrefix, message)
+                    LOGGER.info("%s: %s", messagePrefix, message)
 
                     if args.test:
                         break
@@ -152,18 +158,18 @@ def update_cadd_scores_by_query(chromosome=None, querySql=None):
                 database.rollback()
                 messagePrefix = "ROLLING BACK"
             
-            loader.logger.info("%s: %s", messagePrefix, message)
-            loader.logger.info("DONE")
+            LOGGER.info("%s: %s", messagePrefix, message)
+            LOGGER.info("DONE")
             
             if args.test:
-                loader.logger.info("DONE - TEST COMPLETE")
+                LOGGER.info("DONE - TEST COMPLETE")
             
     except DatabaseError as err:
-        loader.logger.critical("Problem updating variant: "  \
+        LOGGER.critical("Problem updating variant: "  \
             + loader.get_current_variant(toStr=True))
         raise(err)
     except Exception as err:
-        loader.logger.critical("Problem parsing variant: " + loader.get_current_variant(toStr=True))
+        LOGGER.critical("Problem parsing variant: " + loader.get_current_variant(toStr=True))
         raise(err)
 
     finally:
@@ -201,8 +207,8 @@ def update_cadd_scores_by_vcf():
                         database.rollback()
                         messagePrefix = "ROLLING BACK"
                     
-                    loader.logger.info("%s: %s", messagePrefix, message)
-                    loader.logger.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
+                    LOGGER.info("%s: %s", messagePrefix, message)
+                    LOGGER.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
                 
                     if args.test:
                         break
@@ -225,19 +231,19 @@ def update_cadd_scores_by_vcf():
                 database.rollback()
                 messagePrefix = "ROLLING BACK"
             
-            loader.logger.info("%s: %s", messagePrefix, message)
-            loader.logger.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
-            loader.logger.info("DONE")
+            LOGGER.info("%s: %s", messagePrefix, message)
+            LOGGER.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
+            LOGGER.info("DONE")
             
             if args.test:
-                loader.logger.info("DONE - TEST COMPLETE")
+                LOGGER.info("DONE - TEST COMPLETE")
             
     except DatabaseError as err:
-        loader.logger.critical("Problem updating variant: "  \
+        LOGGER.critical("Problem updating variant: "  \
             + loader.get_current_variant(toStr=True), prefix="ERROR")
         raise(err)
     except Exception as err:
-        loader.logger.critical("Problem parsing variant: %s", loader.get_current_variant(toStr=True))
+        LOGGER.critical("Problem parsing variant: %s", loader.get_current_variant(toStr=True))
         raise(err)
     finally:
         database.close()

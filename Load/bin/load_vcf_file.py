@@ -24,10 +24,15 @@ from niagads.reference.chromosomes import Human
 
 from AnnotatedVDB.Util.loaders import VCFVariantLoader 
 
-def initialize_logger(fileName):
+LOGGER = logging.getLogger(__name__)
+
+def initialize_logger():
+    for handler in logging.root.handlers[:]: # vrs-logging is getting the way
+        logging.root.removeHandler(handler)
+    logFileName = args.fileName + '-load-vcf.log' if args.fileName else path.join(args.dir, 'load-vcf.log')
     logHandler = logging.StreamHandler() if args.log2stderr \
         else ExitOnCriticalExceptionHandler(
-                filename=fileName + '-load-vcf.log',
+                filename=logFileName,
                 mode='w',
                 encoding='utf-8',
             )
@@ -36,22 +41,22 @@ def initialize_logger(fileName):
         format='%(asctime)s %(funcName)s %(levelname)-8s %(message)s',
         level=logging.DEBUG if args.debug else logging.INFO
     )
-
-    return logHandler
-
+    
+    LOGGER.info("LOGGING Initialized")
+    LOGGER.debug("DEBUGGING enbaled") 
+    
 
 def initialize_loader(fileName):
     """! initialize loader """
 
     try:
-        logFileHandler = initialize_logger(fileName)
-        loader = VCFVariantLoader(args.datasource, logFileHandler=logFileHandler, verbose=args.verbose, debug=args.debug)
+        loader = VCFVariantLoader(args.datasource, verbose=args.verbose, debug=args.debug)
         
         if args.verbose:
-            loader.logger.info("Parameters: %", print_dict(vars(args), pretty=True))
+            LOGGER.info("Parameters: %", print_dict(vars(args), pretty=True))
 
         loader.set_algorithm_invocation('load_vcf_result', print_args(args, False))
-        loader.logger.info('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
+        LOGGER.info('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         loader.initialize_bin_indexer(args.gusConfigFile)
@@ -61,10 +66,10 @@ def initialize_loader(fileName):
         
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
-            loader.logger.info("Fail at variant: " + loader.fail_at_variant())
+            LOGGER.info("Fail at variant: " + loader.fail_at_variant())
         
     except Exception as err:
-        loader.logger.critical("Problem initializing Loader")
+        LOGGER.critical("Problem initializing Loader")
         raise RuntimeError("Problem initializing Loader")
         
     return loader
@@ -74,15 +79,14 @@ def load(fileName):
     """! parse over a VCF file; bulk load using COPY """
 
     loader = initialize_loader(fileName)
-    loader.logger.info('Parsing ' + fileName)
-    loader.logger.info('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping')
+    LOGGER.info('Parsing ' + fileName)
+    LOGGER.info('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping')
     
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
-        loader.logger.info("--resumeAfter flag specified; Finding skip until point %", args.resumeAfter)
+        LOGGER.info("--resumeAfter flag specified; Finding skip until point %", args.resumeAfter)
         loader.set_resume_after_variant(args.resumeAfter)
-
-    testComplete = False # flag if test is complete
+        
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -99,29 +103,29 @@ def load(fileName):
                 
                 if (lineCount == 0 and not loader.resume_load()) \
                     or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
-                    if args.debug:
-                        loader.logger.debug('Processing new copy object')
                     tstart = datetime.now()
-                        
+                    if args.debug:
+                        LOGGER.debug('Processing new copy object')
+
                 primaryKeyMapping = loader.parse_variant(line.rstrip())
-                loader.logger.debug(primaryKeyMapping)
-                for metaseqId, pk in primaryKeyMapping.items():
-                    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
+                LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
+                #for metaseqId, pk in primaryKeyMapping.items():
+                #    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
 
                 lineCount += 1
                     
                 if not loader.resume_load():
                     if lineCount % args.logAfter == 0:
-                        loader.logger.info('SKIPPED: {:,} lines'.format(lineCount))
+                        LOGGER.info('SKIPPED: {:,} lines'.format(lineCount))
                     continue
                     
                 if loader.resume_load() != resume: # then you are at the resume cutoff
                     resume = True
-                    loader.logger.info('SKIPPED: {:,} lines'.format(lineCount))
+                    LOGGER.info('SKIPPED: {:,} lines'.format(lineCount))
                     continue
                 
                 if lineCount % args.logAfter == 0 and lineCount % args.commitAfter != 0:
-                    loader.logger.info("Parsed %s lines (%s variants)",
+                    LOGGER.info("Parsed %s lines (%s variants)",
                         lineCount, loader.get_count('variant'))
 
                 if lineCount % args.commitAfter == 0:
@@ -129,7 +133,7 @@ def load(fileName):
                         tendw = datetime.now()
                         message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
                             str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
-                        loader.logger.debug(message)
+                        LOGGER.debug(message)
                     
                     loader.load_variants()
                     if args.datasource.lower() == 'adsp':
@@ -146,20 +150,20 @@ def load(fileName):
 
                     if lineCount % args.logAfter == 0:
                         message += "; up to = " + loader.get_current_variant_id()
-                        loader.logger.info("%s: %s", messagePrefix, message)
+                        LOGGER.info("%s: %s", messagePrefix, message)
                         
                         if loader.get_count('update') > 0:
                             message = '{:,}'.format(loader.get_count('update')) + " variants"
-                            loader.logger.info("UPDATED: %s", message)
+                            LOGGER.info("UPDATED: %s", message)
                         
                         if loader.get_count('duplicates') > 0:
                             message = '{:,}'.format(loader.get_count('duplicates')) + " variants"  
-                            loader.logger.info("SKIPPED: %s", message)
+                            LOGGER.info("SKIPPED: %s", message)
 
                         if args.debug:
                             tend = datetime.now()
-                            loader.logger.debug('Database copy time: ' + str(tend - tendw))
-                            loader.logger.debug('        Total time: ' + str(tend - tstart))
+                            LOGGER.debug('Database copy time: ' + str(tend - tendw))
+                            LOGGER.debug('        Total time: ' + str(tend - tstart))
 
                     if args.test:
                         break
@@ -180,31 +184,31 @@ def load(fileName):
                 messagePrefix = "LOADED"
                 message += " -- rolling back"
             message += "; up to = " + loader.get_current_variant_id()
-            loader.logger.info("%s: %s", messagePrefix, message)
+            LOGGER.info("%s: %s", messagePrefix, message)
             
             if loader.get_count('update') > 0:
                 message = '{:,}'.format(loader.get_count('update')) + " variants"
-                loader.logger.info("UPDATED: %s", message)
+                LOGGER.info("UPDATED: %s", message)
                             
             if loader.get_count('duplicates') > 0:
                 message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-                loader.logger.info("SKIPPED: %s", message)
+                LOGGER.info("SKIPPED: %s", message)
                 
-            loader.logger.info("DONE")
+            LOGGER.info("DONE")
                         
             if args.test:
-                loader.logger.info("DONE - TEST COMPLETE")
+                LOGGER.info("DONE - TEST COMPLETE")
                 
         # ============== end with open, cursor ===================
         
     except DatabaseError as err:
-        loader.logger.critical("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
+        LOGGER.critical("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
             + loader.get_current_variant_id())
         raise(err)
     except IOError as err:
         raise(err)
     except Exception as err:
-        loader.logger.critical("Problem parsing variant: %s; line: %s", loader.get_current_variant_id(), print_dict(line))
+        LOGGER.critical("Problem parsing variant: %s; line: %s", loader.get_current_variant_id(), print_dict(line))
         raise(err)
     finally:
         mappedFile.close()
@@ -253,7 +257,7 @@ if __name__ == "__main__":
                         help="load 'commitAfter' rows as test")
     parser.add_argument('--resumeAfter',
                         help="variantId after which to resume load (log lists lasts committed variantId)")
-    parser.add_argument('-c', '--chr', default='all',
+    parser.add_argument('-c', '--chr', 
                         help="comma separated list of one or more chromosomes to load, e.g., 1, 2, M, X, `all`, `allNoM` / required for parallel load"),
     parser.add_argument('--fileName',
                         help="full path of file to load, if --dir option is provided, will be ignored")
@@ -277,7 +281,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     validate_args()
-
+    
+    initialize_logger()
+    
     if args.fileName:
         load(args.fileName)
         
