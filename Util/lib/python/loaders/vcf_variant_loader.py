@@ -53,7 +53,7 @@ NBSP = " " # for multi-line sql
 class VCFVariantLoader(VariantLoader):
     """! functions for loading variants from a VCF file """
     
-    def __init__(self, datasource, logFileHandler=StreamHandler(), verbose=False, debug=False):
+    def __init__(self, datasource, verbose=False, debug=False):
         """! VCFVariantLoader base class initializer
 
             @param datasource          datasource description
@@ -69,7 +69,7 @@ class VCFVariantLoader(VariantLoader):
         self.__update_fields = None
         self.__vcf_header_fields = None
         self.__chromosome = None
-        super(VCFVariantLoader, self).__init__(datasource, logFileHandler, verbose, debug)
+        super(VCFVariantLoader, self).__init__(datasource, verbose, debug)
         self.logger.info(type(self).__name__ + " initialized")
  
  
@@ -323,7 +323,6 @@ class VCFVariantLoader(VariantLoader):
 
         if self._debug:
             self.logger.debug('Entering ' + type(self).__name__ + '.' + 'parse_variant')
-            self.logger.debug('Resume? %s', self.resume_load())
             
         if self.resume_load() is False and self._resume_after_variant is None:
             raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
@@ -345,12 +344,20 @@ class VCFVariantLoader(VariantLoader):
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
             if self.skip_existing():
-                if self.is_duplicate(self._current_variant.id):
+                primaryKey = self.is_duplicate(self._current_variant.id, returnPK=True)
+                if primaryKey:
+                    variantPrimaryKeyMapping = {self._current_variant.id : primaryKey}
+                    self.logger.info("Duplicate found %s", variantPrimaryKeyMapping)
                     self.increment_counter('skipped')
-                    return None
+                    return variantPrimaryKeyMapping
             
             # iterate over alleles
             variantPrimaryKeyMapping = self.__parse_alt_alleles(entry, flags)
+            if self._debug:
+                self.logger.debug("PKM: %s", variantPrimaryKeyMapping)
+                
+            if variantPrimaryKeyMapping is None:
+                raise ValueError(entry)
             
         except Exception as err:
             raise err
