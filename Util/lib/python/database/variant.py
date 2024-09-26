@@ -316,7 +316,7 @@ class VariantRecord(object):
             result = cursor.fetchone()
             
             if result[0][variantId] is None:
-                return False # variant not in db
+                return None if returnPK else False # variant not in db
             
             return result[0][variantId][0]['primary_key'] if returnPK else True
 
