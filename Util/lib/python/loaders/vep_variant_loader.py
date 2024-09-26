@@ -48,7 +48,7 @@ NBSP = " " # for multi-line sql
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
     
-    def __init__(self, datasource, logFileHandler=StreamHandler(), verbose=False, debug=False):
+    def __init__(self, datasource, verbose=False, debug=False):
         """! VEPVariantLoader base class initializer
 
             @param datasource          datasource description
@@ -58,7 +58,7 @@ class VEPVariantLoader(VariantLoader):
             
             @returns                   An instance of the VepVariantLoader class with initialized counters and copy buffer
         """
-        super(VEPVariantLoader, self).__init__(datasource, logFileHandler, verbose, debug)
+        super(VEPVariantLoader, self).__init__(datasource, verbose, debug)
         self.__vep_parser = None
         self.logger.info(type(self).__name__ + " initialized")
         

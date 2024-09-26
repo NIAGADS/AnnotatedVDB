@@ -29,8 +29,8 @@ CADD_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET cadd_scores = d.cadd_scor
 class CADDUpdater(VariantLoader):
     """ utils for slicing CADD tbx database """
 
-    def __init__(self, databasePath, logFileHandler=StreamHandler(), verbose=False, debug=False):
-        super(CADDUpdater, self).__init__('CADD', logFileHandler, verbose, debug)
+    def __init__(self, databasePath, verbose=False, debug=False):
+        super(CADDUpdater, self).__init__('CADD', verbose, debug)
         self.__path = databasePath
         self.__snv = self.__connect(CADD_SNV_FILE)
         self.__indel = self.__connect(CADD_INDEL_FILE)     

@@ -79,7 +79,7 @@ BOOLEAN_FIELDS = ["is_adsp_variant", "is_multi_allelic"]
 class VariantLoader(object):
     """! functions for loading variants -- use child classes for specific datasources / result types """
     
-    def __init__(self, datasource, logFileHandler=logging.StreamHandler(), verbose=False, debug=False):
+    def __init__(self, datasource, verbose=False, debug=False):
         """! VariantLoader base class initializer
 
             @param datasource          datasource description
@@ -90,7 +90,8 @@ class VariantLoader(object):
             @returns                   An instance of the VariantLoader class with initialized log, counters and copy buffer
         """
         # single underscore so protected / child classes can access
-        self.logger: logging.Logger = logging.getLogger(__name__).addHandler(logFileHandler)
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        # self.logger.addHandler(logFileHandler)
         self._verbose = verbose
         self._debug = debug
         self._datasource = datasource.lower() if datasource is not None else None
