@@ -35,6 +35,8 @@
 import json 
 import traceback
 
+from logging import StreamHandler
+
 from copy import deepcopy
 from io import StringIO
 
@@ -51,11 +53,11 @@ NBSP = " " # for multi-line sql
 class VCFVariantLoader(VariantLoader):
     """! functions for loading variants from a VCF file """
     
-    def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
+    def __init__(self, datasource, logFileHandler=StreamHandler(), verbose=False, debug=False):
         """! VCFVariantLoader base class initializer
 
             @param datasource          datasource description
-            @param logFileName         full path to logging file
+            @param logFileHandler      log file handler
             @param verbose             flag for verbose output
             @param debug               flag for debug output
             
@@ -67,8 +69,8 @@ class VCFVariantLoader(VariantLoader):
         self.__update_fields = None
         self.__vcf_header_fields = None
         self.__chromosome = None
-        super(VCFVariantLoader, self).__init__(datasource, logFileName, verbose, debug)
-        self.log((type(self).__name__, "initialized"), prefix="INFO")
+        super(VCFVariantLoader, self).__init__(datasource, logFileHandler, verbose, debug)
+        self.logger.info(type(self).__name__ + " initialized")
  
  
     def set_chromosome(self, chrom):
@@ -102,7 +104,7 @@ class VCFVariantLoader(VariantLoader):
             fields.extend(copyFields)
         
         if self._debug:
-            self.log(("COPY fields", fields), prefix="DEBUG")
+            self.logger.debug("Copy fields: %s", fields)
             
         super(VCFVariantLoader, self).initialize_copy_sql(copyFields=fields)
         
@@ -130,7 +132,6 @@ class VCFVariantLoader(VariantLoader):
         """ generate update sql """
         fields = self.__update_fields
         if fields is None:
-            self.log("Need to specify update fields using loader.set_update_fields(<array>) to do an update")
             raise ValueError("Need to specify update fields using loader.set_update_fields(<array>) to do an update")
         
         updateString = ""   
@@ -160,14 +161,14 @@ class VCFVariantLoader(VariantLoader):
         
         self.set_update_sql(sql)
         if self._debug:        
-            self.log("Update SQL: " + self._update_sql, prefix="DEBUG")
+            self.logger.debug("Update SQL: %s", self._update_sql)
             
             
             
     def __buffer_update_values(self, entry, flags):
         """ save udpate values to value list """
         if self._debug:
-            self.log('Entering ' + type(self).__name__ + '.' + '__buffer_update_values', prefix="DEBUG")
+            self.logger.debug('Entering ' + type(self).__name__ + '.' + '__buffer_update_values')
             
         # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
         # see default
@@ -177,26 +178,24 @@ class VCFVariantLoader(VariantLoader):
         if uFlags is not None:
             if 'update' in uFlags and uFlags['update'] is False:
                 if self._debug:
-                    self.log((recordPK, "already has values for update fields; skipping"), prefix="DEBUG")
+                    self.logger.debug(recordPK + " already has values for update fields; skipping")
                 self.increment_counter('skipped')
                 return 'SKIPPED'
             
             if 'is_adsp_variant' in 'uFlags':
                 isAdspVariant = uFlags['is_adsp_variant'] 
                 
-        
         if recordPK is None:
             if self._debug:
-                self.log(("Variant", self._current_variant.id, "not in DB, inserting."), prefix="DEBUG")
+                self.logger.debug("Variant %s not in DB, inserting", self._current_variant.id)
             return 'INSERT'
         
         values = [recordPK]
         values.append('chr' + self._current_variant.chromosome)
         
         if self._debug:
-            self.log(("Updating variant", recordPK, " (is ADSP = ", xstr(isAdspVariant) + ")", "with", uValues), prefix="DEBUG")
-            self.log(("Update fields", self.__update_fields), prefix="DEBUG")
-        
+            self.logger.debug("Updating variant %s (is ADSP = %s) with values: %s", recordPK, xstr(isAdspVariant), uValues)
+
         for f in self.__update_fields:
             cValue = uValues[f]
 
@@ -209,7 +208,7 @@ class VCFVariantLoader(VariantLoader):
             values.append(True)
             
         if self._debug:
-            self.log(("Buffered Values:", values), prefix="DEBUG")
+            self.logger.debug("Buffered Values: %s", values)
         
         self._update_buffer.append(tuple(values))
         self.increment_counter('update')
@@ -235,9 +234,9 @@ class VCFVariantLoader(VariantLoader):
         """
         
         if self._debug:
-            self.log('Entering ' + type(self).__name__ + '.' + '__parse_alt_alleles', prefix="DEBUG")
-            self.log((print_dict(self._current_variant)), prefix="DEBUG")
-            self.log(("Update/Load flags:", flags), prefix="DEBUG")
+            self.logger.debug('Entering ' + type(self).__name__ + '.' + '__parse_alt_alleles')
+            self.logger.debug("Current Variant: %s", print_dict(self._current_variant))
+            self.logger.debug("Update/Load flags: %s", flags)
             
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
@@ -246,14 +245,14 @@ class VCFVariantLoader(VariantLoader):
         
         for alt in variant.alt_alleles:              
             if alt == '.':
-                self.log(("Skipping variant", self._current_variant.id, "no alt allele (alt = .)"), prefix="WARNING")
+                self.logger.warning("Skipping variant " + self._current_variant.id + "; no alt allele (alt = .)")
                 self.increment_counter('skipped')
                 continue
             
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
-            
+
             if self.skip_existing():
-                if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+                if self.is_duplicate(annotator.get_metaseq_id()):
                     self.increment_counter('skipped')
                     continue
             
@@ -270,7 +269,7 @@ class VCFVariantLoader(VariantLoader):
             primaryKeyMapping.update({annotator.get_metaseq_id(): recordPK})
             
             if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
-                if self.is_duplicate(recordPK, 'PRIMARY_KEY'):
+                if self.is_duplicate(recordPK):
                     self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
                     self.increment_counter('update')
                     continue
@@ -306,8 +305,8 @@ class VCFVariantLoader(VariantLoader):
                 copyValues.append(xstr(True)) # is_adsp_variant
                 
             if self._debug:
-                self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
-                self.log(("COPY values", copyValues), prefix="DEBUG")
+                self.logger.debug("Display Attributes: " + print_dict(annotator.get_display_attributes(variant.rs_position)))
+                self.logger.debug("COPY values: %s", copyValues)
                 
             self.add_copy_str('#'.join(copyValues))
             self.increment_counter('variant')
@@ -323,13 +322,11 @@ class VCFVariantLoader(VariantLoader):
         """
 
         if self._debug:
-            self.log('Entering ' + type(self).__name__ + '.' + 'parse_result', prefix="DEBUG")
-            self.log(('Resume?', self.resume_load()), prefix="DEBUG")
+            self.logger.debug('Entering ' + type(self).__name__ + '.' + 'parse_variant')
+            self.logger.debug('Resume? %s', self.resume_load())
             
         if self.resume_load() is False and self._resume_after_variant is None:
-            err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
-            self.log(str(err), prefix="ERROR")
-            raise err
+            raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
         
         variantPrimaryKeyMapping = None
         
@@ -347,9 +344,8 @@ class VCFVariantLoader(VariantLoader):
             # extract identifying variant info for frequent reference & logging in the loader calling script
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
-            if self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(self._current_variant.ref_snp_id, 
-                        'REFSNP', 'chr' + self._current_variant.chromosome):
+            if self.skip_existing():
+                if self.is_duplicate(self._current_variant.id):
                     self.increment_counter('skipped')
                     return None
             
@@ -357,7 +353,6 @@ class VCFVariantLoader(VariantLoader):
             variantPrimaryKeyMapping = self.__parse_alt_alleles(entry, flags)
             
         except Exception as err:
-            self.log(str(err), prefix="ERROR")
             raise err
         
         finally:

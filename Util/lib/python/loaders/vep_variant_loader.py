@@ -32,26 +32,23 @@
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import json 
-import traceback
+
+from logging import StreamHandler
 
 from copy import deepcopy
-from io import StringIO
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update
-from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from GenomicsDBData.Util.utils import xstr, print_dict, deep_update
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser, CONSEQUENCE_TYPES
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
 from AnnotatedVDB.Util.loaders import VariantLoader, DEFAULT_COPY_FIELDS, JSONB_UPDATE_FIELDS
-from AnnotatedVDB.Util.database import VARIANT_ID_TYPES
 
 NBSP = " " # for multi-line sql
 
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
     
-    def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
+    def __init__(self, datasource, logFileHandler=StreamHandler(), verbose=False, debug=False):
         """! VEPVariantLoader base class initializer
 
             @param datasource          datasource description
@@ -61,9 +58,9 @@ class VEPVariantLoader(VariantLoader):
             
             @returns                   An instance of the VepVariantLoader class with initialized counters and copy buffer
         """
-        super(VEPVariantLoader, self).__init__(datasource, logFileName, verbose, debug)
+        super(VEPVariantLoader, self).__init__(datasource, logFileHandler, verbose, debug)
         self.__vep_parser = None
-        self.log((type(self).__name__, "initialized"), prefix="INFO")
+        self.logger.info(type(self).__name__ + " initialized")
         
 
 
@@ -165,9 +162,10 @@ class VEPVariantLoader(VariantLoader):
             update = False
             
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)                   
-            if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+            if self.is_duplicate(annotator.get_metaseq_id()):
                 if self._log_skips:
-                    self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")
+                    self.logger.warning("Duplicate found: %s | %s", annotator.get_metaseq_id(), xstr(variant))
+                    
                 if not self.skip_existing():
                     self.increment_counter('update')
                     update = True
@@ -212,8 +210,8 @@ class VEPVariantLoader(VariantLoader):
                 copyValues.append(xstr(True)) # is_adsp_variant
             
             if self._debug:
-                self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
-                self.log(copyValues, prefix="DEBUG")
+                self.logger.debug("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)))
+                self.logger.debug("Copy Values: %s", copyValues)
             if update:
                 self._update_buffer.append(copyValues)
             else: 
@@ -253,7 +251,7 @@ class VEPVariantLoader(VariantLoader):
         
         self.set_update_sql(sql)
         if self._debug:        
-            self.log("Update SQL: " + self._update_sql, prefix="DEBUG")
+            self.logger.debug("Update SQL: " + self._update_sql)
             
 
     
@@ -263,15 +261,11 @@ class VEPVariantLoader(VariantLoader):
         @returns copy string for db load 
         """
         if self._variant_validator is None:
-            err = UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants");
-            self.log(str(err), prefix="ERROR")
-            raise err
+            raise UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants")
                     
         if self.resume_load() is False and self._resume_after_variant is None:
-            err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
-            self.log(str(err), prefix="ERROR")
-            raise err
-        
+            raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
+            
         newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
         
         variantPrimaryKeyMapping = None
@@ -297,12 +291,12 @@ class VEPVariantLoader(VariantLoader):
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
-            if self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', 'chr' + self._current_variant.chromosome):
+            if self.skip_existing():
+                if self.is_duplicate(self._current_variant.id):
                     self.increment_counter('duplicates')
                     self.increment_counter('skipped')
                     if self._log_skips:
-                        self.log(("Duplicate found: ", xstr(self._current_variant)), "INFO")
+                        self.logger.warning("Duplicate found: %s", xstr(self._current_variant))
                     return None
         
             # rank consequences
@@ -311,15 +305,14 @@ class VEPVariantLoader(VariantLoader):
             # log any new consequences
             if self.__vep_parser.get_consequence_parser().get_new_conseq_count() > newConseqCount:
                 newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
-                self.log(("New consequence added for", self._current_variant.id, "-",
+                self.logger.warning("New consequence added for %s - %s",
+                    self._current_variant.id, 
                     self.__vep_parser.get_consequence_parser().get_added_consequences(mostRecent=True)),
-                    prefix="WARNING")
-    
+                    
             # iterate over alleles
             variantPrimaryKeyMapping = self.__parse_alt_alleles(entry)
             
-        except Exception as err:
-            self.log(str(err), prefix="ERROR")
+        except Exception as err:            
             raise err
             
         finally:
