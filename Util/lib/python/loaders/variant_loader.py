@@ -169,8 +169,8 @@ class VariantLoader(object):
         return self._variant_validator.has_json_attr(field, key, variantId, idType, chromosome, returnVal)        
         
             
-    def is_duplicate(self, variantId, returnPK=False):
-        return self._variant_validator.exists(variantId, returnPK=returnPK)
+    def is_duplicate(self, variantId, returnMatch=False):
+        return self._variant_validator.exists(variantId, returnMatch=returnMatch)
     
     
     def skip_existing(self):

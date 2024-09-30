@@ -15,7 +15,7 @@ from sys import stdout
 
 from concurrent.futures import ProcessPoolExecutor
 
-from niagads.utils.logging import ExitOnCriticalExceptionHandler
+from niagads.utils.logging import ExitOnCriticalExceptionHandler, ExitOnExceptionStreamHandler
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
 from niagads.utils.sys import warning, die, get_opener, print_args
@@ -29,7 +29,9 @@ LOGGER = logging.getLogger(__name__)
 def initialize_logger():
     for handler in logging.root.handlers[:]: # vrs-logging is getting the way
         logging.root.removeHandler(handler)
+    
     logFileName = args.fileName + '-load-vcf.log' if args.fileName else path.join(args.dir, 'load-vcf.log')
+    
     logHandler = logging.StreamHandler() if args.log2stderr \
         else ExitOnCriticalExceptionHandler(
                 filename=logFileName,
@@ -41,7 +43,6 @@ def initialize_logger():
         format='%(asctime)s %(funcName)s %(levelname)-8s %(message)s',
         level=logging.DEBUG if args.debug else logging.INFO
     )
-    
     LOGGER.info("LOGGING Initialized")
     LOGGER.debug("DEBUGGING enbaled") 
     
@@ -108,7 +109,9 @@ def load(fileName):
                         LOGGER.debug('Processing new copy object')
 
                 primaryKeyMapping = loader.parse_variant(line.rstrip())
-                LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
+
+                if args.debug:
+                    LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
                 #for metaseqId, pk in primaryKeyMapping.items():
                 #    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
 

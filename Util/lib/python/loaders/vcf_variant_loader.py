@@ -71,16 +71,15 @@ class VCFVariantLoader(VariantLoader):
         self.__chromosome = None
         super(VCFVariantLoader, self).__init__(datasource, verbose, debug)
         self.logger.info(type(self).__name__ + " initialized")
- 
- 
+
     def set_chromosome(self, chrom):
         self.__chromosome = chrom
     
 
     def chromosome(self):
         return self.__chromosome
- 
- 
+
+
     def set_vcf_header_fields(self, fields):
         self.__vcf_header_fields = fields
         
@@ -88,7 +87,7 @@ class VCFVariantLoader(VariantLoader):
     def vcf_header_fields(self):
         return self.__vcf_header_fields
     
- 
+
     def set_update_existing(self, updateExisting):
         self.__update_existing = updateExisting
         
@@ -226,6 +225,25 @@ class VCFVariantLoader(VariantLoader):
         # self._update_buffer.write(updateStr + ';')
         
     
+    
+    def __generate_primary_key(self, chrm, pos, ref, alt, externalId, requireValidation=True):
+        """
+        wrapper for generate primary key to catch invalid indels
+        """
+        annotator = VariantAnnotator(ref, alt, chrm, pos)
+        try:
+            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), externalId, requireValidation=requireValidation)      
+        except ValueError as err:
+            # sequence mismatch for long indel; check to see if possibly an insertion
+            if len(alt) < len(ref):
+                self.logger.warning("%s - switching alleles", str(err))
+                return self.__generate_primary_key(chrm, pos, alt, ref, externalId, requireValidation=False)
+            else:
+                self.logger.warning("%s", str(err))
+                return self.__generate_primary_key(chrm, pos, ref, alt, externalId, requireValidation=False)
+        return annotator, recordPK
+    
+    
     def __parse_alt_alleles(self, vcfEntry, flags):
         """! iterate over alleles and calculate values to load
             add to copy buffer
@@ -245,12 +263,12 @@ class VCFVariantLoader(VariantLoader):
         
         for alt in variant.alt_alleles:              
             if alt == '.':
-                self.logger.warning("Skipping variant " + self._current_variant.id + "; no alt allele (alt = .)")
+                self.logger.warning("Skipping variant " + variant.id + "; no alt allele (alt = .)")
                 self.increment_counter('skipped')
                 continue
             
-            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
-
+            annotator, recordPK = self.__generate_primary_key(variant.chromosome, variant.position, variant.ref_allele, alt, variantExternalId)   
+            
             if self.skip_existing():
                 if self.is_duplicate(annotator.get_metaseq_id()):
                     self.increment_counter('skipped')
@@ -263,12 +281,9 @@ class VCFVariantLoader(VariantLoader):
                 status = self.__buffer_update_values(vcfEntry, flags)
                 if status != 'INSERT':
                     continue # skipped or updated
-                
-            # other wise -- new variant load
-            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-            primaryKeyMapping.update({annotator.get_metaseq_id(): recordPK})
-            
-            if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
+
+            # FIXME: don't update ADSP status here/ remove this from the code
+            if self.is_adsp(): 
                 if self.is_duplicate(recordPK):
                     self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
                     self.increment_counter('update')
@@ -277,6 +292,8 @@ class VCFVariantLoader(VariantLoader):
             normRef, normAlt = annotator.get_normalized_alleles()
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt))
+            
+            primaryKeyMapping.update({self._current_variant.id: {'primary_key': recordPK, 'bin_index': binIndex}})
 
             alleleFreq = vcfEntry.get_frequencies(alt)
             
@@ -344,9 +361,10 @@ class VCFVariantLoader(VariantLoader):
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
             
             if self.skip_existing():
-                primaryKey = self.is_duplicate(self._current_variant.id, returnPK=True)
-                if primaryKey:
-                    variantPrimaryKeyMapping = {self._current_variant.id : primaryKey}
+                matchedVariant = self.is_duplicate(self._current_variant.id, returnMatch=True)
+                self.logger.debug("mv %s", matchedVariant)
+                if matchedVariant:
+                    variantPrimaryKeyMapping = {self._current_variant.id : matchedVariant}
                     self.logger.info("Duplicate found %s", variantPrimaryKeyMapping)
                     self.increment_counter('skipped')
                     return variantPrimaryKeyMapping
@@ -359,8 +377,8 @@ class VCFVariantLoader(VariantLoader):
             if variantPrimaryKeyMapping is None:
                 raise ValueError(entry)
             
+            return variantPrimaryKeyMapping
+        
         except Exception as err:
             raise err
-        
-        finally:
-            return variantPrimaryKeyMapping
+

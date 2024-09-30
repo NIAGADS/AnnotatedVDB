@@ -254,6 +254,8 @@ class VariantRecord(object):
             @param returnVal             return the value if True else return boolean flag
             @returns    tuple that is (primary key, value of the attribute/ None if null) or (primary_key, boolean)
         """
+        
+        raise NotImplementedError("SQL needs to be updated")
         idType = idType.upper()
         self.__validate_id_type(idType)
         
@@ -265,11 +267,12 @@ class VariantRecord(object):
         try: 
             lookupIdType = 'LEGACY_PRIMARY_KEY' if idType == 'PRIMARY_KEY' and self.legacy_pk() else idType
             cursorKey = 'HAS_ATTR_' + field + '_' + lookupIdType     
-            sql = "SELECT record_primary_key, " + field + " FROM AnnotatedVDB.Variant WHERE " + LOOKUP_SQL[lookupIdType]
+            # FIXME: LOOKUP_SQL is deprecated
+            sql = "SELECT record_primary_key, " + field + " FROM AnnotatedVDB.Variant WHERE " # + LOOKUP_SQL[lookupIdType]
             if self.legacy_pk():
                 sql = sql.replace('AnnotatedVDB', 'Public')
                 sql = sql.replace('SELECT record_primary_key',
-                                  "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id, LEFT(metaseq_id, 50)) AS record_primary_key")
+                    "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id, LEFT(metaseq_id, 50)) AS record_primary_key")
                 
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
             numBindParams = sql.count('%s')
@@ -295,16 +298,16 @@ class VariantRecord(object):
             return list(result) if returnVal else (result[0], result is not None)
 
         except Exception as err:
-            raise_pg_exception(err)
+            raise err
             
-        return None
     
 
-    def exists(self, variantId, returnPK=False):
+    def exists(self, variantId, returnMatch=False):
         """! check if against the AnnotatedVDB to see if a variant with the specified id is already present
 
             @param variantId             variant id to lookup
             @param idType                type of variant identifier, must match one of VARIANT_ID_TYPES
+            @param returnMatch           return the match (pk & bin index)
             @exception PG / DatabaseError   if issue w/database lookup, handled by raise_pg_exception
             @returns                     True if the variant exists in the database, else False
         """
@@ -316,12 +319,11 @@ class VariantRecord(object):
             result = cursor.fetchone()
             
             if result[0][variantId] is None:
-                return None if returnPK else False # variant not in db
+                return None if returnMatch else False # variant not in db
             
-            return result[0][variantId][0]['primary_key'] if returnPK else True
+            return result[0][variantId][0] if returnMatch else True
 
         except Exception as err:
-            raise_pg_exception(err)
+            raise err
 
-        return False
 

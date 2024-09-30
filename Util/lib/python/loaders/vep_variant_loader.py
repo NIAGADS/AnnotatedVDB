@@ -189,7 +189,7 @@ class VEPVariantLoader(VariantLoader):
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
 
             recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-            primaryKeyMapping.update({annotator.get_metaseq_id: recordPK})
+            primaryKeyMapping.update({annotator.get_metaseq_id(): {'primary_key': recordPK, 'bin_index': binIndex}})
     
             copyValues = ['chr' + xstr(variant.chromosome),
                         recordPK,
