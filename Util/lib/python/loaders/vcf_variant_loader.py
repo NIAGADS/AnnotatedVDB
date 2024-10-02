@@ -293,7 +293,7 @@ class VCFVariantLoader(VariantLoader):
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt))
             
-            primaryKeyMapping.update({self._current_variant.id: {'primary_key': recordPK, 'bin_index': binIndex}})
+            primaryKeyMapping.update({self._current_variant.id: [{'primary_key': recordPK, 'bin_index': binIndex}]})
 
             alleleFreq = vcfEntry.get_frequencies(alt)
             
