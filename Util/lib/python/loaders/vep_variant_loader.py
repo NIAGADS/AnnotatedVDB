@@ -156,24 +156,25 @@ class VEPVariantLoader(VariantLoader):
         # as this will remove the info for all alleles (frequencies, consequences)
         cleanResult = self.__clean_result() 
         
-        primaryKeyMapping = {}
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
             update = False
             
-            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)                   
-            if self.is_duplicate(annotator.get_metaseq_id()):
+            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)    
+            recordPK = self.is_duplicate(annotator.get_metaseq_id(), returnMatch=True)
+            
+            if recordPK is None:
+                raise KeyError("No record for variant %s found in DB.  VEP Variant Loader does updates only.", variant)
+            
+            if self.has_attribute(recordPK, 'vep_output', returnVal=False):
                 if self._log_skips:
-                    self.logger.warning("Duplicate found: %s | %s", annotator.get_metaseq_id(), xstr(variant))
-                    
-                if not self.skip_existing():
-                    self.increment_counter('update')
-                    update = True
-                else: 
+                        self.logger.warning("Existing data found for: %s | %s", annotator.get_metaseq_id(), variant)
+                if self.skip_existing():
                     self.increment_counter('duplicates')
                     continue
-                
-            
+                    
+                self.increment_counter('update')
+
             normRef, normAlt = annotator.get_normalized_alleles()
             binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
                                                         vcfEntry.infer_variant_end_location(alt))
@@ -187,9 +188,6 @@ class VEPVariantLoader(VariantLoader):
             alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry, alt)
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
-
-            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-            primaryKeyMapping.update({annotator.get_metaseq_id(): {'primary_key': recordPK, 'bin_index': binIndex}})
     
             copyValues = ['chr' + xstr(variant.chromosome),
                         recordPK,
@@ -212,13 +210,12 @@ class VEPVariantLoader(VariantLoader):
             if self._debug:
                 self.logger.debug("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)))
                 self.logger.debug("Copy Values: %s", copyValues)
-            if update:
-                self._update_buffer.append(copyValues)
-            else: 
-                self.add_copy_str('#'.join(copyValues))
 
-        return primaryKeyMapping
-    
+            self._update_buffer.append(copyValues)
+            
+            # else: ## NO LONGER DOING INSERTS
+                # self.add_copy_str('#'.join(copyValues))
+
     
     def initialize_update_sql(self):
         """ generate update sql """
@@ -253,7 +250,6 @@ class VEPVariantLoader(VariantLoader):
         if self._debug:        
             self.logger.debug("Update SQL: " + self._update_sql)
             
-
     
     def parse_variant(self, line):
         """! parse & load single line from file 
@@ -267,9 +263,7 @@ class VEPVariantLoader(VariantLoader):
             raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
             
         newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
-        
-        variantPrimaryKeyMapping = None
-        
+                
         try:
             self.increment_counter('line')
             resultJson = json.loads(line)
@@ -290,14 +284,6 @@ class VEPVariantLoader(VariantLoader):
             
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
-            
-            if self.skip_existing():
-                if self.is_duplicate(self._current_variant.id):
-                    self.increment_counter('duplicates')
-                    self.increment_counter('skipped')
-                    if self._log_skips:
-                        self.logger.warning("Duplicate found: %s", xstr(self._current_variant))
-                    return None
         
             # rank consequences
             self.__vep_parser.adsp_rank_and_sort_consequences()
@@ -310,12 +296,10 @@ class VEPVariantLoader(VariantLoader):
                     self.__vep_parser.get_consequence_parser().get_added_consequences(mostRecent=True)),
                     
             # iterate over alleles
-            variantPrimaryKeyMapping = self.__parse_alt_alleles(entry)
+            self.__parse_alt_alleles(entry)
             
         except Exception as err:            
             raise err
             
-        finally:
-            return variantPrimaryKeyMapping
-    
+
     
