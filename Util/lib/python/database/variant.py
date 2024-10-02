@@ -191,16 +191,17 @@ class VariantRecord(object):
         return json.loads(result) if isinstance(result, str) else result
     
     
-    def has_json_attr(self, field, key, variantId, idType, chromosome=None, returnVal=True):
+    def has_json_attr(self, field, key, variantPK, returnVal=True):
         """! checks to see if a JSONB field contains a specific key, returns value if true
 
             @param field            field/column to query
             @param key              json key fiekd
-            @param variantId            variant identifier
-            @param idType             type of variant identifier
-            
+            @param variantPK           variant identifier
+
             @returns tuple that is (primary key, value of the json attribute/ None if null) or (primary_key, boolean)
         """       
+        
+        raise NotImplementedError("TODO: update code to reflect PK only lookups")
         idType = idType.upper()
         self.__validate_id_type(idType)
 
@@ -244,58 +245,34 @@ class VariantRecord(object):
         return None
     
     
-    def has_attr(self, fields, variantId, idType, chromosome=None, returnVal=True):
+    def has_attr(self, field, variantPK, returnVal=True):
         """! checks to see the variant has a value for one or more fields
         usually used before an update so returning PK incase lookup is not the PK
         
             @param fields                 one or more fields (string or array) /column to query
-            @param variantId             variant identifier
-            @param idType                type of variant identifier, must match one of VARIANT_ID_TYPES
+            @param variantPK             variant primary key
             @param returnVal             return the value if True else return boolean flag
-            @returns    tuple that is (primary key, value of the attribute/ None if null) or (primary_key, boolean)
+            @returns    value of the attribute or bool if returnVal = False
         """
         
-        raise NotImplementedError("SQL needs to be updated")
-        idType = idType.upper()
-        self.__validate_id_type(idType)
-        
-        field = fields
-        if not isinstance(fields, str): # then array of strings
-            field = ','.join(fields)
+        queryFields = field
+        if not isinstance(field, str): # then array of strings
+            queryFields = ','.join(field)
             returnVal = True # must return the values if requesting multiple fields
             
         try: 
-            lookupIdType = 'LEGACY_PRIMARY_KEY' if idType == 'PRIMARY_KEY' and self.legacy_pk() else idType
-            cursorKey = 'HAS_ATTR_' + field + '_' + lookupIdType     
-            # FIXME: LOOKUP_SQL is deprecated
-            sql = "SELECT record_primary_key, " + field + " FROM AnnotatedVDB.Variant WHERE " # + LOOKUP_SQL[lookupIdType]
-            if self.legacy_pk():
-                sql = sql.replace('AnnotatedVDB', 'Public')
-                sql = sql.replace('SELECT record_primary_key',
-                    "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id, LEFT(metaseq_id, 50)) AS record_primary_key")
+            cursorKey = 'HAS_ATTR_LOOKUP'
+            sql = "SELECT record_primary_key, " + queryFields + " FROM AnnotatedVDB.Variant WHERE record_primary_key = %s"
                 
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
-            numBindParams = sql.count('%s')
-            params = []
-            for i in range(0, numBindParams):
-                params.append(variantId)
-            
-            if chromosome is not None: # for refsnp lookups
-                sql += ' AND chromosome = %s'
-                chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
-                params.append(chrm)
-                
-            if chromosome is None and lookupIdType != 'REFSNP':
-                sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
-                params.append(variantId)
-                                
-            cursor.execute(sql, tuple(params))
+            cursor.execute(sql, (variantPK, ))
             result = cursor.fetchone()
         
+            self.logger.critical("has attr lookup result: %s", result)
             if result is None:
-                return None # variant not in db
+                raise KeyError("No record found for variant %s in database.")
             
-            return list(result) if returnVal else (result[0], result is not None)
+            return result if returnVal else result[field] is not None
 
         except Exception as err:
             raise err
@@ -321,7 +298,7 @@ class VariantRecord(object):
             if result[0][variantId] is None:
                 return None if returnMatch else False # variant not in db
             
-            return result[0][variantId][0] if returnMatch else True
+            return result[0][variantId] if returnMatch else True
 
         except Exception as err:
             raise err
