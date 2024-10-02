@@ -161,12 +161,12 @@ class VariantLoader(object):
             self.initialize_variant_validator(gusConfigFile)
             
             
-    def has_attribute(self, field, variantId, idType, chromosome=None, returnVal=True):
-        return self._variant_validator.has_attr(field, variantId, idType, chromosome, returnVal)            
+    def has_attribute(self, field, variantPK, returnVal=True):
+        return self._variant_validator.has_attr(field, variantPK, returnVal)            
     
     
-    def has_json_attribute(self, field, key, variantId, idType, chromosome=None, returnVal=True):
-        return self._variant_validator.has_json_attr(field, key, variantId, idType, chromosome, returnVal)        
+    def has_json_attribute(self, field, key, variantPK, returnVal=True):
+        return self._variant_validator.has_json_attr(field, key, variantPK, returnVal)        
         
             
     def is_duplicate(self, variantId, returnMatch=False):
