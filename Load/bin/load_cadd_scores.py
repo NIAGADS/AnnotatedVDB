@@ -59,7 +59,7 @@ def initialize_loader(fileName):
 
         LOGGER.info("Parameters: %s", print_dict(vars(args), pretty=True))
 
-        loader.set_algorithm_invocation('load_cadd_scores', print_args(args, False))
+        loader.set_algorithm_invocation('load_cadd_scores', print_args(args, False), commit=args.commit)
         LOGGER('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
