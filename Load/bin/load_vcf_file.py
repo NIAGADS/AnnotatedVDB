@@ -112,8 +112,8 @@ def load(fileName):
 
                 if args.debug:
                     LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
-                #for metaseqId, pk in primaryKeyMapping.items():
-                #    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
+                for metaseqId, pk in primaryKeyMapping.items():
+                    print(metaseqId, pk, sep='\t', file=mfh, flush=True)
 
                 lineCount += 1
                     
@@ -176,7 +176,7 @@ def load(fileName):
             # ============== end mapped file ===================
             
             # commit anything left in the copy buffer
-            loader.load_variants();
+            loader.load_variants()
 
             message = '{:,}'.format(loader.get_count('variant')) + " variants"
             messagePrefix = "COMMITTED"
