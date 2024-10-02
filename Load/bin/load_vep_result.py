@@ -2,12 +2,9 @@
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
 Loads AnnotatedVDB from JSON output from running VEP
- - can load multiple chromosome in parallel
- 
-
+    - can load multiple chromosome in parallel
+    - only updates existing records
 """
-
-from __future__ import print_function
 
 import argparse
 import gzip
