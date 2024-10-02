@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
-Loads AnnotatedVDB from JSON output from running VEP on dbSNP
-Loads each chromosome in parallel
+Loads AnnotatedVDB from JSON output from running VEP
+ - can load multiple chromosome in parallel
+ 
+
 """
 
 from __future__ import print_function
@@ -10,7 +12,6 @@ from __future__ import print_function
 import argparse
 import gzip
 import mmap
-import json
 import glob
 import logging
 
@@ -70,8 +71,6 @@ def initialize_loader(fileName):
         
         if not args.updateExisting:
             loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
-        if args.logDuplicates:
-            loader.log_duplicates()
             
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
@@ -90,7 +89,6 @@ def load(fileName):
 
     loader = initialize_loader(fileName)
     LOGGER.info('Parsing ' + fileName)
-    LOGGER.info('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping')
     
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
@@ -102,9 +100,7 @@ def load(fileName):
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
-        with open(fileName, 'r') as fhandle, database.cursor() as cursor, \
-            open(fileName + ".mapping", 'w') as mfh:
-                
+        with open(fileName, 'r') as fhandle, database.cursor() as cursor:
             loader.set_cursor(cursor)
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
@@ -116,12 +112,8 @@ def load(fileName):
                             LOGGER.debug('Processing new copy object')
                         tstart = datetime.now()
                             
-                    # save the primary key map to a file as a record of new inserts
-                    primaryKeyMapping = loader.parse_variant(line.rstrip())
-                    for metaseqId, pk in primaryKeyMapping.items():
-                        print(metaseqId, pk, sep='\t', file=mfh, flush=True)
-                        
                     lineCount += 1
+                    loader.parse_variant(line.rstrip())
                         
                     if not loader.resume_load():
                         if lineCount % args.logAfter == 0:
@@ -177,8 +169,8 @@ def load(fileName):
 
             # ============== end with gzip.GzipFile ===================
             
-            # commit anything left in the copy buffer
-            loader.load_variants();
+            # commit resiudals left in the copy buffer
+            loader.load_variants()
 
             message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
             messagePrefix = "COMMITTED"
@@ -288,9 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--updateExisting', action='store_true',
-                        help="updates existing variants; if not specified skips them")
-    parser.add_argument('--logDuplicates', action='store_true',
-                        help="log duplicate/existing variants")
+                        help="updates variants with existing data; if not specified skips them")
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
