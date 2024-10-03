@@ -72,7 +72,8 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
-JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes", "loss_of_function"]
+JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes", 
+    "loss_of_function", "vep_output", "adsp_most_severe_consequence", "adsp_ranked_consequences"]
 
 BOOLEAN_FIELDS = ["is_adsp_variant", "is_multi_allelic"]
 
@@ -471,6 +472,8 @@ class VariantLoader(object):
                 self.reset_update_buffer()
             except Exception as e:
                 raise_pg_exception(e, returnError=False)
+        else:
+            self.logger.warning("update called on empty buffer")
             
 
     def load_variants(self):
