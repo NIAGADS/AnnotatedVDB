@@ -152,7 +152,7 @@ def load(fileName):
                         message += " -- rolling back"
 
                     if lineCount % args.logAfter == 0:
-                        message += "; up to = " + loader.get_current_variant_id()
+                        message += "; PARSED: " + xstr(lineCount) + "; up to = " + loader.get_current_variant_id()
                         LOGGER.info("%s: %s", messagePrefix, message)
                         
                         if loader.get_count('update') > 0:
