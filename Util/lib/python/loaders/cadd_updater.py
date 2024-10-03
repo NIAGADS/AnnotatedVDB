@@ -95,10 +95,12 @@ class CADDUpdater(VariantLoader):
             raise ValueError("must set update sql (VariantLoader.set_update_sql(sql) before attempting update")
         
         chrm = chromosome if chromosome is not None else self.__chromosome
-        if chrm is None:
-            self.logger.warning("No chromosome set, update will lock AnnotatedVDB.Variant")
-        else:
+        if chrm is not None: 
             chrm = chrm if 'chr' in chrm else 'chr' + xstr(chrm)
+        else:
+            if self._debug:
+                self.logger.warning("No chromosome set, update may lock AnnotatedVDB.Variant")
+
                 
         updateSql = self._update_sql
         if chrm is not None:
@@ -147,15 +149,20 @@ class CADDUpdater(VariantLoader):
         self._update_buffer.write(updateSql + ";")
 
 
-    def is_cadd_annotated(self):
-        """ lookup variant in db
-        return None if variant does not exists, set primary key and return flag if value is set"""
-        result = self._variant_validator.has_attr('cadd_scores', self._current_variant.metaseq_id, 'METASEQ')
+    def __get_variant_primary_key(self, metaseqId):
+        """ fetch variant primary key """
+        result = self.is_duplicate(metaseqId, returnMatch=True)
         if result is None:
-            return None 
-        self._current_variant.record_primary_key = result[0] # recordPK
-        return result[1] if result[1] is not None else False # flag indicating whether value is assinged / newly enter
-        
+            raise KeyError("No record for variant " + metaseqId + "found in DB.")
+        return result[0]['primary_key']
+    
+
+    def __is_cadd_annotated(self, recordPK):
+        """ lookup where CADD annotation is already set in the DB """
+    
+        score = self._variant_validator.has_attr('cadd_scores', recordPK, returnVal=True)
+        return score is not None
+
 
     def slice(self, chrm, start, end, indels=False):
         """ slice CADD file; assume using this more
@@ -164,7 +171,7 @@ class CADDUpdater(VariantLoader):
         caddChr = 'MT' if chrm == 'M' else xstr(chrm)
         return tbxFh.fetch(caddChr, start, end, parser=pysam.asTuple())
 
-  
+
     def match(self, chrm, position, indels=True):
         """ match single position in CADD file; default indels to true
         b/c will be using this more with the indel file"""
@@ -173,26 +180,21 @@ class CADDUpdater(VariantLoader):
         try:
             return tbxFh.fetch(caddChr, int(position) - 1, int(position), parser=pysam.asTuple())
         except ValueError as e: # happens sometimes on chrm M/MT
-            warning("WARNING", e)
+            self.logger.warning("CADD tabix-lookup error: %s", str(e))
             return []
         
         
     def buffer_variant(self):
         chrm, position, ref, alt = self._current_variant.metaseq_id.split(':')
         isIndel = True if len(ref) > 1 or len(alt) > 1 else False
+        recordPK = self.__get_variant_primary_key(self._current_variant.metaseq_id)
 
-        validationResult = self.is_cadd_annotated() # will update current_variant.record_primary_key if found
-        
-        if validationResult is None:
-            self.logger.warning("Variant " + self._current_variant.metaseq_id + " not in DB; SKIPPING")
-            self.increment_counter('skipped')
-            self.increment_counter('not_matched')
-
-        elif self.skip_existing():
-            if validationResult: # if not none, expect a boolean -- true already set
-                self.logger.warning("Variant %s / %s already updated; SKIPPING",
+        if self.__is_cadd_annotated(recordPK) and self.skip_existing():
+            if self.debug:
+                self.logger.debug("CADD annotation for variant %s / %s exists; SKIPPING",
                     self._current_variant.metaseq_id, self._current_variant.record_primary_key)
-                self.increment_counter('skipped')
+            self.increment_counter('skipped')
+            
 
         else:
             matched = False
@@ -201,8 +203,7 @@ class CADDUpdater(VariantLoader):
 
                 if ref in matchedAlleles and alt in matchedAlleles:
                     evidence = {'CADD_raw_score': float(match[4]), 'CADD_phred': float(match[5])}
-                    self.buffer_update_values(self._current_variant.record_primary_key, evidence)
-                    # buffer_update_statement(self._current_variant.record_primary_key, evidence)  
+                    self.buffer_update_values(recordPK, evidence)
                     self.increment_update_count(isIndel)
                     matched = True
                     
@@ -213,8 +214,8 @@ class CADDUpdater(VariantLoader):
                     break # no need to look for more matches
 
             if not matched:
-                self.buffer_update_values(self._current_variant.record_primary_key, {})  
+                self.buffer_update_values(recordPK, {})  
                 # self.buffer_update_statement(self._current_variant.record_primary_key, {})  
                 self.increment_counter('not_matched')
                 if self._debug:
-                    self.logger.debug(self._current_variant.metaseq_id + " not matched / loading placeholder")
+                    self.logger.debug(recordPK + " not matched in CADD database: loading placeholder")
