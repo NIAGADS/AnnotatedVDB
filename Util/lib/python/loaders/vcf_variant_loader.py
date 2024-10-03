@@ -362,10 +362,10 @@ class VCFVariantLoader(VariantLoader):
             
             if self.skip_existing():
                 matchedVariant = self.is_duplicate(self._current_variant.id, returnMatch=True)
-                self.logger.debug("mv %s", matchedVariant)
                 if matchedVariant:
                     variantPrimaryKeyMapping = {self._current_variant.id : matchedVariant}
-                    self.logger.info("Duplicate found %s", variantPrimaryKeyMapping)
+                    if self._debug:
+                        self.logger.debug("Duplicate found %s", variantPrimaryKeyMapping)
                     self.increment_counter('skipped')
                     return variantPrimaryKeyMapping
             
