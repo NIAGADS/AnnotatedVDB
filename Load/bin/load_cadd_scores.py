@@ -60,7 +60,7 @@ def initialize_loader(fileName):
         LOGGER.info("Parameters: %s", print_dict(vars(args), pretty=True))
 
         loader.set_algorithm_invocation('load_cadd_scores', print_args(args, False), commit=args.commit)
-        LOGGER('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
+        LOGGER.info('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         
@@ -179,6 +179,7 @@ def update_cadd_scores_by_query(chromosome=None, querySql=None):
 
 def update_cadd_scores_by_vcf(): 
     loader = initialize_loader(args.vcfFile)
+
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -207,8 +208,10 @@ def update_cadd_scores_by_vcf():
                         database.rollback()
                         messagePrefix = "ROLLING BACK"
                     
+                    if loader.get_count('skipped') > 0:
+                        message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped'))
+                
                     LOGGER.info("%s: %s", messagePrefix, message)
-                    LOGGER.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
                 
                     if args.test:
                         break
@@ -230,9 +233,12 @@ def update_cadd_scores_by_vcf():
             else:
                 database.rollback()
                 messagePrefix = "ROLLING BACK"
-            
+                
+            if loader.get_count('skipped') > 0:
+                message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped'))
+                
             LOGGER.info("%s: %s", messagePrefix, message)
-            LOGGER.info("Skipped " + '{:,}'.format(loader.get_count('skipped')))
+
             LOGGER.info("DONE")
             
             if args.test:
