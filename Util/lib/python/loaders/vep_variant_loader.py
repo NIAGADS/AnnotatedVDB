@@ -38,12 +38,15 @@ from logging import StreamHandler
 from copy import deepcopy
 
 from GenomicsDBData.Util.utils import xstr, print_dict, deep_update
+from GenomicsDBData.Util.list_utils import qw
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser, CONSEQUENCE_TYPES
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
-from AnnotatedVDB.Util.loaders import VariantLoader, DEFAULT_COPY_FIELDS, JSONB_UPDATE_FIELDS
+from AnnotatedVDB.Util.loaders import VariantLoader, JSONB_UPDATE_FIELDS
 
 NBSP = " " # for multi-line sql
+
+COPY_FIELDS = qw('allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
@@ -139,6 +142,14 @@ class VEPVariantLoader(VariantLoader):
         return deep_update(alleleFreqs, alleleGMAFs)
         
     
+    def __get_variant_primary_key(self, metaseqId):
+        """ fetch variant primary key """
+        result = self.is_duplicate(metaseqId, returnMatch=True)
+        if result is None:
+            raise KeyError("No record for variant %s found in DB.  VEP Variant Loader does updates only.", metaseqId)
+        return result[0]['primary_key']
+        
+        
     def __parse_alt_alleles(self, vcfEntry):
         """! iterate over alleles and calculate values to load
             add to copy buffer
@@ -148,8 +159,7 @@ class VEPVariantLoader(VariantLoader):
         # extract result frequencies    
         frequencies = self.__get_result_frequencies()
         variant = self._current_variant # just for ease/simplicity
-        variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
-        
+            
         # clean result -- remove elements in the result JSON that are extracted 
         # and saved to other fields
         # does a deep copy so won't affect allele-specific extractions, so do just once
@@ -161,66 +171,53 @@ class VEPVariantLoader(VariantLoader):
             update = False
             
             annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)    
-            recordPK = self.is_duplicate(annotator.get_metaseq_id(), returnMatch=True)
-            
-            if recordPK is None:
-                raise KeyError("No record for variant %s found in DB.  VEP Variant Loader does updates only.", variant)
-            
-            if self.has_attribute(recordPK, 'vep_output', returnVal=False):
-                if self._log_skips:
-                        self.logger.warning("Existing data found for: %s | %s", annotator.get_metaseq_id(), variant)
-                if self.skip_existing():
+            recordPK = self.__get_variant_primary_key(annotator.get_metaseq_id())
+
+            if self.has_attribute('vep_output', recordPK, returnVal=False):
+                if self.skip_existing(): # otherwise will update existing record
                     self.increment_counter('duplicates')
+                    if self._log_skips:
+                        self.logger.warning("Existing data found for: %s | %s; SKIPPING", annotator.get_metaseq_id(), variant)
                     continue
+                if self._log_skips:
+                    self.logger.warning("Existing data found for: %s | %s; UPDATING", annotator.get_metaseq_id(), variant)
                     
-                self.increment_counter('update')
-
-            normRef, normAlt = annotator.get_normalized_alleles()
-            binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
-                                                        vcfEntry.infer_variant_end_location(alt))
-
             # NOTE: VEP uses left normalized alleles to indicate freq allele, with - for full deletions
             # so need to use normalized alleles to match freq allele / consequence allele
             # to the correct variant alt allele
             normRef, normAlt = annotator.get_normalized_alleles(snvDivMinus=True)
+            
             alleleFreq = None if frequencies is None \
                 else self.__get_allele_frequencies(normAlt, frequencies)    
             alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry, alt)
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
     
-            copyValues = ['chr' + xstr(variant.chromosome),
-                        recordPK,
-                        xstr(variant.position),
-                        xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
-                        binIndex,
-                        xstr(variant.ref_snp_id, nullStr='NULL'),
-                        annotator.get_metaseq_id(),
-                        xstr(annotator.get_display_attributes(variant.rs_position), nullStr='NULL'),
-                        xstr(alleleFreq, nullStr='NULL'),
-                        xstr(msConseq, nullStr='NULL'),
-                        xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
-                        xstr(cleanResult), # cleaned result JSON
-                        xstr(self._alg_invocation_id)
-                        ]      
+            updateValues = [
+                recordPK,
+                'chr' + xstr(variant.chromosome),
+                xstr(alleleFreq, nullStr='{}'),
+                xstr(msConseq, nullStr='{}'),
+                xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='{}'),
+                xstr(cleanResult, nullStr='{}'), # cleaned result JSON
+                int(self._alg_invocation_id)
+            ]      
             
             if self.is_adsp():
-                copyValues.append(xstr(True)) # is_adsp_variant
+                updateValues.append(xstr(True)) # is_adsp_variant
             
             if self._debug:
-                self.logger.debug("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)))
-                self.logger.debug("Copy Values: %s", copyValues)
+                self.logger.debug("Update Values: %s", updateValues)
 
-            self._update_buffer.append(copyValues)
-            
-            # else: ## NO LONGER DOING INSERTS
-                # self.add_copy_str('#'.join(copyValues))
+            self.increment_counter('update')
+            self._update_buffer.append(updateValues)
 
     
     def initialize_update_sql(self):
         """ generate update sql """
-
-        fields = DEFAULT_COPY_FIELDS
+        # chromosome record_primary_key allele_frequencies 
+        # adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id
+        fields = COPY_FIELDS
         if self.is_adsp():
             fields.append('is_adsp_variant')
             
