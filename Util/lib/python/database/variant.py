@@ -248,6 +248,8 @@ class VariantRecord(object):
     def has_attr(self, field, variantPK, returnVal=True):
         """! checks to see the variant has a value for one or more fields
         usually used before an update so returning PK incase lookup is not the PK
+        NOTE: will only return True if all values are None, so getting the value list best if 
+        (returnVal = True) if assessing multiple values simultaneously
         
             @param fields                 one or more fields (string or array) /column to query
             @param variantPK             variant primary key
@@ -262,17 +264,20 @@ class VariantRecord(object):
             
         try: 
             cursorKey = 'HAS_ATTR_LOOKUP'
-            sql = "SELECT record_primary_key, " + queryFields + " FROM AnnotatedVDB.Variant WHERE record_primary_key = %s"
+            sql = "SELECT " + queryFields + " FROM AnnotatedVDB.Variant WHERE record_primary_key = %s"
                 
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
             cursor.execute(sql, (variantPK, ))
             result = cursor.fetchone()
         
-            self.logger.critical("has attr lookup result: %s", result)
             if result is None:
                 raise KeyError("No record found for variant %s in database.")
             
-            return result if returnVal else result[field] is not None
+            if len(result) == 1:
+                return result[0] if returnVal else result[0] is not None
+            else:
+                return list(result) if returnVal else all(v is not None for v in result)
+
 
         except Exception as err:
             raise err
