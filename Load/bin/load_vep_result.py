@@ -66,8 +66,9 @@ def initialize_loader(fileName):
         
         loader.initialize_variant_validator(args.gusConfigFile)
         
-        if not args.updateExisting:
-            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
+        if args.logExisting: loader.log_skips()
+        
+        loader.set_skip_existing(not args.updateExisting, args.gusConfigFile) # initialize validator db connection
             
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
@@ -94,6 +95,7 @@ def load(fileName):
 
     testComplete = False # flag if test is complete
     updateCount = 0
+    existingCount = 0
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -121,79 +123,75 @@ def load(fileName):
                         resume = True
                         LOGGER.info('SKIPPED {:,} lines'.format(lineCount))
                         continue
-                    
-                    if lineCount % args.logAfter == 0 \
-                        and lineCount % args.commitAfter != 0:
-                        LOGGER.info("PARSED: % lines (%s variants)", lineCount, loader.get_count('variant'))
+
+                    if lineCount % args.logAfter == 0:   
+                        if lineCount % args.commitAfter != 0:
+                            LOGGER.info("PARSED: % lines (%s variants)", lineCount, loader.get_count('variant'))
 
                     if lineCount % args.commitAfter == 0:
-                        if args.debug:
-                            tendw = datetime.now()
-                            message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
-                                str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
-                            LOGGER.debug(message)
+                        loader.update_variants() # no inserts only updates
+                        updateCount = loader.get_count('update')
                         
-                        loader.load_variants()
-                        if loader.get_count('update') > updateCount:
-                            loader.update_variants()
-                            updateCount = loader.get_count('update')
+                        message = 'UPDATED = ' + '{:,}'.format(updateCount) 
+                            
+                        ec = loader.get_count('duplicates')
+                        if ec > existingCount:
+                            existingCount = ec
+                            if args.updateExisting:
+                                message += '; OVERWROTE = ' + '{:,}'.format(existingCount)
+                            else:
+                                message += '; SKIPPED = ' + '{:,}'.format(existingCount)
+                            
+                        
+                        message += "; up to = " + loader.get_current_variant_id()
 
-                        message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
                         messagePrefix = "COMMITTED"
                         if args.commit:
                             database.commit()
                         else:
                             database.rollback()
                             messagePrefix = "ROLLING BACK"
+                            
+                        LOGGER.info("%s: %s", messagePrefix, message)
 
-                        if lineCount % args.logAfter == 0:   
-                            if loader.get_count('update') > 0:
-                                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
-                            
-                            if loader.get_count('duplicates') > 0:
-                                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
-                                
-                            message += "; up to = " + loader.get_current_variant_id()
-                            LOGGER.info("%s: %s", messagePrefix, message)
-                            
-                            if args.debug:
-                                tend = datetime.now()
-                                LOGGER.debug('Database copy time: ' + str(tend - tendw))
-                                LOGGER.debug('        Total time: ' + str(tend - tstart))
 
                         if args.test:
                             break
 
             # ============== end with gzip.GzipFile ===================
             
-            # commit resiudals left in the copy buffer
-            loader.load_variants()
+            # commit resiudals left in the buffer
 
-            message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
-            messagePrefix = "COMMITTED"
-            if args.commit:
-                database.commit()
-            else:
-                database.rollback()
-                messagePrefix = "ROLLING BACK"  
-            
-            if loader.get_count('update') > 0:
-                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
-                            
-            if loader.get_count('duplicates') > 0:
-                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
+            if updateCount < loader.get_count('update'):
+                LOGGER.info("Processing Residuals")
+                loader.update_variants()
+                messagePrefix = "COMMITTED"
                 
-            message += "; up to = " + loader.get_current_variant_id()  
-            LOGGER("%s: %s", messagePrefix, message)
-    
-            LOGGER.info("DONE")
+                message = 'UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
+                    
+                if loader.get_count('duplicates') > existingCount:
+                    if args.updateExisting:
+                        message += '; OVERWROTE = ' + '{:,}'.format(loader.get_count('duplicates'))
+                    else:
+                        message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
+                
+                message += "; up to = " + loader.get_current_variant_id()
+
+                messagePrefix = "COMMITTED"
+                if args.commit:
+                    database.commit()
+                else:
+                    database.rollback()
+                    messagePrefix = "ROLLING BACK"
+                
+                LOGGER.info("%s: %s", messagePrefix, message)
             
             # summarize new consequences
             LOGGER.info("Consequences added during load: %s", 
                 loader.vep_parser().get_added_conseq_summary())
             
-            if args.test:
-                LOGGER.info("DONE - TEST COMPLETE")
+            LOGGER.info("DONE")
+            
                 
         # ============== end with open, cursor ===================
         
@@ -282,6 +280,7 @@ if __name__ == "__main__":
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
     parser.add_argument('--log2stderr', action="store_true")
+    parser.add_argument('--logExisting', action='store_true', help="log existing records" )
     args = parser.parse_args()
 
     validate_args()
