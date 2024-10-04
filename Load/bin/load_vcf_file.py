@@ -63,6 +63,7 @@ def initialize_loader(fileName):
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
         
+        if args.logExisting: loader.log_skips()
         loader.set_skip_existing(args.skipExisting, args.gusConfigFile) # initialize validator db connection
         
         if args.failAt:
@@ -119,12 +120,12 @@ def load(fileName):
                     
                 if not loader.resume_load():
                     if lineCount % args.logAfter == 0:
-                        LOGGER.info('SKIPPED: {:,} lines'.format(lineCount))
+                        LOGGER.info('SKIPPED = {:,} lines'.format(lineCount))
                     continue
                     
                 if loader.resume_load() != resume: # then you are at the resume cutoff
                     resume = True
-                    LOGGER.info('SKIPPED: {:,} lines'.format(lineCount))
+                    LOGGER.info('SKIPPED = {:,} lines'.format(lineCount))
                     continue
                 
                 if lineCount % args.logAfter == 0 and lineCount % args.commitAfter != 0:
@@ -153,16 +154,14 @@ def load(fileName):
 
                     if lineCount % args.logAfter == 0:
                         message += "; PARSED: " + xstr(lineCount) + "; up to = " + loader.get_current_variant_id()
-                        LOGGER.info("%s: %s", messagePrefix, message)
-                        
-                        if loader.get_count('update') > 0:
-                            message = '{:,}'.format(loader.get_count('update')) + " variants"
-                            LOGGER.info("UPDATED: %s", message)
-                        
-                        if loader.get_count('duplicates') > 0:
-                            message = '{:,}'.format(loader.get_count('duplicates')) + " variants"  
-                            LOGGER.info("SKIPPED: %s", message)
 
+                        if loader.get_count('update') > 0:
+                            message += '; UPDATED =  {:,}'.format(loader.get_count('update')) + " variants"
+                        
+                        if loader.get_count('skipped') > 0:
+                            message += '; SKIPPED = {:,}'.format(loader.get_count('skipped')) + " variants"  
+
+                        LOGGER.info("%s: %s", messagePrefix, message)
                         if args.debug:
                             tend = datetime.now()
                             LOGGER.debug('Database copy time: ' + str(tend - tendw))
@@ -177,6 +176,8 @@ def load(fileName):
             
             # commit anything left in the copy buffer
             loader.load_variants()
+            if args.datasource.lower() == 'adsp':
+                loader.update_variants()
 
             message = '{:,}'.format(loader.get_count('variant')) + " variants"
             messagePrefix = "COMMITTED"
@@ -187,16 +188,16 @@ def load(fileName):
                 messagePrefix = "LOADED"
                 message += " -- rolling back"
             message += "; up to = " + loader.get_current_variant_id()
-            LOGGER.info("%s: %s", messagePrefix, message)
+
             
             if loader.get_count('update') > 0:
-                message = '{:,}'.format(loader.get_count('update')) + " variants"
-                LOGGER.info("UPDATED: %s", message)
-                            
-            if loader.get_count('duplicates') > 0:
-                message = '{:,}'.format(loader.get_count('duplicates')) + " variants"    
-                LOGGER.info("SKIPPED: %s", message)
+                message += '; UPDATED =  {:,}'.format(loader.get_count('update')) + " variants"
+            
+            if loader.get_count('skipped') > 0:
+                message += '; SKIPPED = {:,}'.format(loader.get_count('skipped')) + " variants"    
+    
                 
+            LOGGER.info("%s: %s", messagePrefix, message)
             LOGGER.info("DONE")
                         
             if args.test:
@@ -279,6 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
+    parser.add_argument('--logExisting', action='store_true')
     parser.add_argument('--log2stderr', action="store_true")
     
     args = parser.parse_args()

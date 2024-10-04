@@ -124,7 +124,7 @@ class VCFVariantLoader(VariantLoader):
         # flags should be {"metaseq_id":<value>}
         # check if duplicates
         if self.update_existing():
-            raise NotImplementedError("Cannot update existing variants with default generator. See update_from_qc_vcf_file.py for example of custom generator");
+            raise NotImplementedError("Cannot update existing variants with default generator. See update_from_qc_vcf_file.py for example of custom generator")
         
     
     def build_update_sql(self):
@@ -259,7 +259,7 @@ class VCFVariantLoader(VariantLoader):
         variant = self._current_variant # just for ease/simplicity
         variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
         
-        primaryKeyMapping = {}
+        primaryKeyMapping = []
         
         for alt in variant.alt_alleles:              
             if alt == '.':
@@ -269,66 +269,71 @@ class VCFVariantLoader(VariantLoader):
             
             annotator, recordPK = self.__generate_primary_key(variant.chromosome, variant.position, variant.ref_allele, alt, variantExternalId)   
             
+            matchedVariant = None
             if self.skip_existing():
-                if self.is_duplicate(annotator.get_metaseq_id()):
+                matchedVariant = self.is_duplicate(annotator.get_metaseq_id(), returnMatch=True)
+                if matchedVariant:
+                    primaryKeyMapping += matchedVariant
+                    if self._log_skips:
+                        self.logger.info("Duplicate found %s: %s", annotator.get_metaseq_id(), matchedVariant)
                     self.increment_counter('skipped')
-                    continue
-            
-            status = None
-            if flags is None:
-                flags = {'metaseq_id': annotator.get_metaseq_id()}
-            if self.update_existing():
-                status = self.__buffer_update_values(vcfEntry, flags)
-                if status != 'INSERT':
-                    continue # skipped or updated
+                    
+            if matchedVariant is None:
+                status = None
+                if flags is None:
+                    flags = {'metaseq_id': annotator.get_metaseq_id()}
+                if self.update_existing():
+                    status = self.__buffer_update_values(vcfEntry, flags)
+                    if status != 'INSERT':
+                        continue # skipped or updated
 
-            # FIXME: don't update ADSP status here/ remove this from the code
-            if self.is_adsp(): 
-                if self.is_duplicate(recordPK):
-                    self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
-                    self.increment_counter('update')
-                    continue
-            
-            normRef, normAlt = annotator.get_normalized_alleles()
-            binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
-                                                        vcfEntry.infer_variant_end_location(alt))
-            
-            primaryKeyMapping.update({self._current_variant.id: [{'primary_key': recordPK, 'bin_index': binIndex}]})
-
-            alleleFreq = vcfEntry.get_frequencies(alt)
-            
-            additionalValues = None
-            if self.__update_fields is not None:
-                pkPlaceholder, uFlags, additionalValues = self.generate_update_values(vcfEntry, flags)                
-
-            # TODO iterate over copy fields and add as each one is hit so order is preserved
-            copyValues = ['chr' + xstr(variant.chromosome),
-                        recordPK,
-                        xstr(variant.position),
-                        annotator.get_metaseq_id(),
-                        binIndex,
-                        xstr(self._alg_invocation_id),
-                        xstr(variant.ref_snp_id, nullStr='NULL'),                        
-                        xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
-                        xstr(annotator.get_display_attributes(variant.rs_position), nullStr='NULL'),
-                        xstr(alleleFreq, nullStr='NULL')
-                        ]      
-            
-            if additionalValues:
-                for f in self.__update_fields:
-                    copyValues.append(xstr(additionalValues[f], nullStr='NULL'))
-            
-            if self.is_adsp():
-                copyValues.append(xstr(True)) # is_adsp_variant
+                # FIXME: don't update ADSP status here/ remove this from the code
+                if self.is_adsp(): 
+                    if self.is_duplicate(recordPK):
+                        self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
+                        self.increment_counter('update')
+                        continue
                 
-            if self._debug:
-                self.logger.debug("Display Attributes: " + print_dict(annotator.get_display_attributes(variant.rs_position)))
-                self.logger.debug("COPY values: %s", copyValues)
+                normRef, normAlt = annotator.get_normalized_alleles()
+                binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
+                                                            vcfEntry.infer_variant_end_location(alt))
+
+                alleleFreq = vcfEntry.get_frequencies(alt)
                 
-            self.add_copy_str('#'.join(copyValues))
-            self.increment_counter('variant')
+                additionalValues = None
+                if self.__update_fields is not None:
+                    pkPlaceholder, uFlags, additionalValues = self.generate_update_values(vcfEntry, flags)                
+
+                # TODO iterate over copy fields and add as each one is hit so order is preserved
+                copyValues = ['chr' + xstr(variant.chromosome),
+                            recordPK,
+                            xstr(variant.position),
+                            annotator.get_metaseq_id(),
+                            binIndex,
+                            xstr(self._alg_invocation_id),
+                            xstr(variant.ref_snp_id, nullStr='NULL'),                        
+                            xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
+                            xstr(annotator.get_display_attributes(variant.rs_position), nullStr='NULL'),
+                            xstr(alleleFreq, nullStr='NULL')
+                            ]      
+                
+                if additionalValues:
+                    for f in self.__update_fields:
+                        copyValues.append(xstr(additionalValues[f], nullStr='NULL'))
+                
+                if self.is_adsp():
+                    copyValues.append(xstr(True)) # is_adsp_variant
+                    
+                if self._debug:
+                    self.logger.debug("Display Attributes: " + print_dict(annotator.get_display_attributes(variant.rs_position)))
+                    self.logger.debug("COPY values: %s", copyValues)
+                    
+                self.add_copy_str('#'.join(copyValues))
+                self.increment_counter('variant')
+                
+                primaryKeyMapping += [{'primary_key': recordPK, 'bin_index': binIndex}]
             
-        return primaryKeyMapping
+        return {self._current_variant.id: primaryKeyMapping}
         
         
     def parse_variant(self, line, flags=None):
@@ -359,15 +364,6 @@ class VCFVariantLoader(VariantLoader):
             
             # extract identifying variant info for frequent reference & logging in the loader calling script
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
-            
-            if self.skip_existing():
-                matchedVariant = self.is_duplicate(self._current_variant.id, returnMatch=True)
-                if matchedVariant:
-                    variantPrimaryKeyMapping = {self._current_variant.id : matchedVariant}
-                    if self._debug:
-                        self.logger.debug("Duplicate found %s", variantPrimaryKeyMapping)
-                    self.increment_counter('skipped')
-                    return variantPrimaryKeyMapping
             
             # iterate over alleles
             variantPrimaryKeyMapping = self.__parse_alt_alleles(entry, flags)
