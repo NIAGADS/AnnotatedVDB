@@ -1,102 +1,105 @@
 #!/usr/bin/env python3
 # pylint: disable=invalid-name,not-an-iterable,unused-import,too-many-locals
 """
-Loads AnnotatedVDB from JSON output from running VEP on dbSNP
-Loads each chromosome in parallel
+Loads AnnotatedVDB from JSON output from running VEP
+    - can load multiple chromosome in parallel
+    - only updates existing records
 """
-
-from __future__ import print_function
 
 import argparse
 import gzip
 import mmap
-import json
 import glob
+import logging
 
 from datetime import datetime
 from os import path
 from concurrent.futures import ProcessPoolExecutor
 from sys import stdout
-from psycopg2 import DatabaseError
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, print_args, die
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from niagads.utils.logging import ExitOnCriticalExceptionHandler
+from niagads.utils.string import xstr
+from niagads.utils.dict import print_dict
+from niagads.utils.sys import warning, die, print_args
+from niagads.db.postgres import Database, DatabaseError
+from niagads.reference.chromosomes import Human
 
 from AnnotatedVDB.Util.loaders import VEPVariantLoader 
-from AnnotatedVDB.Util.parsers import ChromosomeMap
-from AnnotatedVDB.Util.enums import HumanChromosome as Human
 
-# ADSP_VARIANT_UPDATE_SQL = "UPDATE AnnotatedVDB.Variant SET is_adsp_variant = true WHERE record_primary_key = %s and chromosome = %s"
-ADSP_VARIANT_UPDATE_SQL = """UPDATE AnnotatedVDB.Variant v SET is_adsp_variant = true 
-    FROM (VALUES %s) AS d(record_primary_key, chromosome)
-    WHERE v.record_primary_key = d.record_primary_key and v.chromosome = d.chromosome"""
+LOGGER = logging.getLogger(__name__)
 
-def initialize_loader(logFilePrefix):
+def initialize_logger():
+    for handler in logging.root.handlers[:]: # vrs-logging is getting the way
+        logging.root.removeHandler(handler)
+    logFileName = args.fileName + '-load-vef.log' if args.fileName else path.join(args.dir, 'load-vep.log')
+    logHandler = logging.StreamHandler() if args.log2stderr \
+        else ExitOnCriticalExceptionHandler(
+                filename=logFileName,
+                mode='w',
+                encoding='utf-8',
+            )
+    logging.basicConfig(
+        handlers=[logHandler],
+        format='%(asctime)s %(funcName)s %(levelname)-8s %(message)s',
+        level=logging.DEBUG if args.debug else logging.INFO
+    )
+
+    return logHandler
+
+
+def initialize_loader(fileName):
     """! initialize loader """
-
-    lfn = xstr(logFilePrefix)
-    if args.resumeAfter:
-        lfn += '_resume_' + args.resumeAfter 
-    if args.failAt:
-        lfn += '_fail_' + args.failAt.replace(':', '-')
-    lfn += '.log'
-    warning("Logging to", lfn)
     
     try:
-        loader = VEPVariantLoader(args.datasource, logFileName=lfn, verbose=args.verbose, debug=args.debug)
+        loader = VEPVariantLoader(args.datasource, verbose=args.verbose, debug=args.debug)
                 
-        loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
+        LOGGER.info("Parameters: %s", print_dict(vars(args), pretty=True))
 
-        loader.set_algorithm_invocation('load_vep_result', xstr(logFilePrefix) + '|' + print_args(args, False))
-        loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
+        loader.set_algorithm_invocation('load_vep_result', print_args(args, False), commit=args.commit)
+        LOGGER.info('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         loader.initialize_vep_parser(args.rankingFile, True, args.verbose)
         loader.initialize_bin_indexer(args.gusConfigFile)
         loader.initialize_copy_sql() # use default copy fields
+        loader.initialize_update_sql()
         
-        loader.set_chromosome_map(chrmMap)
+        loader.initialize_variant_validator(args.gusConfigFile)
         
-        if loader.is_adsp():
-            loader.initialize_variant_validator(args.gusConfigFile)
-            loader.set_update_sql(ADSP_VARIANT_UPDATE_SQL)
+        if args.logExisting: loader.log_skips()
         
-        if args.skipExisting:
-            loader.set_skip_existing(True, args.gusConfigFile) # initialize validator db connection
-            if args.logSkips:
-                loader.log_skips()
+        loader.set_skip_existing(not args.updateExisting, args.gusConfigFile) # initialize validator db connection
             
         if args.failAt:
             loader.set_fail_at_variant(args.failAt)
-            loader.log("Fail at variant: " + loader.fail_at_variant(), prefix="INFO")
+            LOGGER.info("Fail at variant: " + loader.fail_at_variant())
         
     except Exception as err:
-        warning("ERROR", "Problem initializing Loader")
-        raise(err)
+        LOGGER.critical("Problem initializing Loader")
+        raise RuntimeError("Problem initializing Loader")
         
     return loader
 
 
-def load_annotation(fileName, logFilePrefix):
+def load(fileName):
     """! parse over a JSON file, extract position, frequencies,
     ids, and ADSP-ranked most severe consequence; bulk load using COPY """
 
-    loader = initialize_loader(logFilePrefix)
-    loader.log('Parsing ' + fileName, prefix="INFO")
-    loader.log('Writing metaseq_id -> primary_key mapping to ' + fileName + '.mapping', prefix='INFO')
+    loader = initialize_loader(fileName)
+    LOGGER.info('Parsing ' + fileName)
     
     resume = args.resumeAfter is None # false if need to skip lines
     if not resume:
-        loader.log(("--resumeAfter flag specified; Finding skip until point", args.resumeAfter), prefix="INFO")
+        LOGGER.info("--resumeAfter flag specified; Finding skip until point %s", args.resumeAfter)
         loader.set_resume_after_variant(args.resumeAfter)
 
     testComplete = False # flag if test is complete
+    updateCount = 0
+    existingCount = 0
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
-        with open(fileName, 'r') as fhandle, database.cursor() as cursor, \
-            open(fileName + ".mapping", 'w') as mfh:
-                
+        with open(fileName, 'r') as fhandle, database.cursor() as cursor:
             loader.set_cursor(cursor)
             mappedFile = mmap.mmap(fhandle.fileno(), 0, prot=mmap.PROT_READ) # put file in swap
             with gzip.GzipFile(mode='r', fileobj=mappedFile) as gfh:
@@ -105,120 +108,107 @@ def load_annotation(fileName, logFilePrefix):
                     if (lineCount == 0 and not loader.resume_load()) \
                         or (lineCount % args.commitAfter == 0 and loader.resume_load()): 
                         if args.debug:
-                            loader.log('Processing new copy object', prefix="DEBUG")
+                            LOGGER.debug('Processing new copy object')
                         tstart = datetime.now()
                             
-                    # save the primary key map to a file as a record of new inserts
-                    primaryKeyMapping = loader.parse_variant(line.rstrip())
-                    for metaseqId, pk in primaryKeyMapping.items():
-                        print(metaseqId, pk, sep='\t', file=mfh, flush=True)
-                        
                     lineCount += 1
+                    loader.parse_variant(line.rstrip())
                         
                     if not loader.resume_load():
                         if lineCount % args.logAfter == 0:
-                            loader.log(('{:,}'.format(lineCount), "lines"), 
-                                        prefix="SKIPPED")
+                            LOGGER.info('SKIPPED {:,} lines'.format(lineCount))
                         continue
                         
                     if loader.resume_load() != resume: # then you are at the resume cutoff
                         resume = True
-                        loader.log(('{:,}'.format(lineCount), "lines"), 
-                                    prefix="SKIPPED")
+                        LOGGER.info('SKIPPED {:,} lines'.format(lineCount))
                         continue
-                    
-                    if lineCount % args.logAfter == 0 \
-                        and lineCount % args.commitAfter != 0:
-                        loader.log((lineCount, "lines (", 
-                                    loader.get_count('variant'), " variants)"), 
-                                    prefix="PARSED")
+
+                    if lineCount % args.logAfter == 0:   
+                        if lineCount % args.commitAfter != 0:
+                            LOGGER.info("PARSED: % lines (%s variants)", lineCount, loader.get_count('variant'))
 
                     if lineCount % args.commitAfter == 0:
-                        if args.debug:
-                            tendw = datetime.now()
-                            message = 'Copy object prepared in ' + str(tendw - tstart) + '; ' + \
-                                str(loader.copy_buffer(sizeOnly=True)) + ' bytes; transfering to database'
-                            loader.log(message, prefix="DEBUG") 
+                        loader.update_variants() # no inserts only updates
+                        updateCount = loader.get_count('update')
                         
-                        loader.load_variants()
-                        if args.datasource.lower() == 'adsp':
-                            loader.update_variants()
+                        message = 'UPDATED = ' + '{:,}'.format(updateCount) 
+                            
+                        ec = loader.get_count('duplicates')
+                        if ec > existingCount:
+                            existingCount = ec
+                            if args.updateExisting:
+                                message += '; OVERWROTE = ' + '{:,}'.format(existingCount)
+                            else:
+                                message += '; SKIPPED = ' + '{:,}'.format(existingCount)
+                            
+                        
+                        message += "; up to = " + loader.get_current_variant_id()
 
-                        message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
                         messagePrefix = "COMMITTED"
                         if args.commit:
                             database.commit()
                         else:
                             database.rollback()
                             messagePrefix = "ROLLING BACK"
+                            
+                        LOGGER.info("%s: %s", messagePrefix, message)
 
-                        if lineCount % args.logAfter == 0:   
-                            if loader.get_count('update') > 0:
-                                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
-                            
-                            if loader.get_count('duplicates') > 0:
-                                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
-                                
-                            message += "; up to = " + loader.get_current_variant_id()
-                            loader.log(message, prefix=messagePrefix)
-                            
-                            if args.debug:
-                                tend = datetime.now()
-                                loader.log('Database copy time: ' + str(tend - tendw), prefix="DEBUG")
-                                loader.log('        Total time: ' + str(tend - tstart), prefix="DEBUG")
 
                         if args.test:
                             break
 
             # ============== end with gzip.GzipFile ===================
             
-            # commit anything left in the copy buffer
-            loader.load_variants();
+            # commit resiudals left in the buffer
 
-            message = 'INSERTED = ' + '{:,}'.format(loader.get_count('variant') - loader.get_count('update') - loader.get_count('duplicates')) 
-            messagePrefix = "COMMITTED"
-            if args.commit:
-                database.commit()
-            else:
-                database.rollback()
-                messagePrefix = "ROLLING BACK"  
-            
-            if loader.get_count('update') > 0:
-                message += '; UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
-                            
-            if loader.get_count('duplicates') > 0:
-                message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
+            if updateCount < loader.get_count('update'):
+                LOGGER.info("Processing Residuals")
+                loader.update_variants()
+                messagePrefix = "COMMITTED"
                 
-            message += "; up to = " + loader.get_current_variant_id()  
-            loader.log(message, prefix=messagePrefix)
-    
-            loader.log("DONE", prefix="INFO")
+                message = 'UPDATED = ' + '{:,}'.format(loader.get_count('update')) 
+                    
+                if loader.get_count('duplicates') > existingCount:
+                    if args.updateExisting:
+                        message += '; OVERWROTE = ' + '{:,}'.format(loader.get_count('duplicates'))
+                    else:
+                        message += '; SKIPPED = ' + '{:,}'.format(loader.get_count('duplicates'))
+                
+                message += "; up to = " + loader.get_current_variant_id()
+
+                messagePrefix = "COMMITTED"
+                if args.commit:
+                    database.commit()
+                else:
+                    database.rollback()
+                    messagePrefix = "ROLLING BACK"
+                
+                LOGGER.info("%s: %s", messagePrefix, message)
             
             # summarize new consequences
-            loader.log(("Consequences added during load:", 
-                        loader.vep_parser().get_added_conseq_summary()), prefix="INFO")
+            LOGGER.info("Consequences added during load: %s", 
+                loader.vep_parser().get_added_conseq_summary())
             
-            if args.test:
-                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
+            LOGGER.info("DONE")
+            
                 
         # ============== end with open, cursor ===================
         
     except DatabaseError as err:
-        loader.log("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
-            + loader.get_current_variant_id(), prefix="ERROR")
+        LOGGER.critical("Problem submitting COPY statement, error involves any variant from last COMMIT until "  \
+            + loader.get_current_variant_id())
         raise(err)
     except IOError as err:
         raise(err)
     except Exception as err:
-        loader.log("Problem parsing variant: " + loader.get_current_variant_id(), prefix="ERROR")
-        loader.log((lineCount, ":", print_dict(json.loads(line))), prefix="LINE")
-        loader.log(str(err), prefix="ERROR")
+        LOGGER.critical("Problem parsing variant: %s; line: %s", loader.get_current_variant_id(), print_dict(line))
         raise(err)
     finally:
         mappedFile.close()
         database.close()
-
-    print(loader.get_algorithm_invocation_id(), file=stdout)
+        print(loader.get_algorithm_invocation_id(), file=stdout)
+        loader.close()
 
 
 def validate_args():
@@ -261,8 +251,6 @@ if __name__ == "__main__":
     parser.add_argument('-g', '--genomeBuild', default='GRCh38', help="genome build: GRCh37 or GRCh38")
     parser.add_argument('-s', '--seqrepoProxyPath', required=True,
                         help="full path to local SeqRepo file repository")
-    parser.add_argument('-m', '--chromosomeMap', required=False,
-                        help="chromosome map")
     parser.add_argument('-r', '--rankingFile', required=True,
                         help="full path to ADSP VEP consequence ranking file")
     parser.add_argument('--commit', action='store_true', help="run in commit mode", required=False)
@@ -286,37 +274,35 @@ if __name__ == "__main__":
                         help="log database copy time / may print development debug statements")
     parser.add_argument('--failAt', 
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
-    parser.add_argument('--skipExisting', action='store_true',
-                        help="check each variant against the database, load non-duplicates only -- time consuming")
-    parser.add_argument('--logSkips', action='store_true',
-                        help="log skipped variants")
+    parser.add_argument('--updateExisting', action='store_true',
+                        help="updates variants with existing data; if not specified skips them")
     parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
                         default='dbSNP',
                         help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
+    parser.add_argument('--log2stderr', action="store_true")
+    parser.add_argument('--logExisting', action='store_true', help="log existing records" )
     args = parser.parse_args()
 
     validate_args()
-
-    chrmMap = ChromosomeMap(args.chromosomeMap) if args.chromosomeMap else None
+    
+    initialize_logger()
 
     if args.fileName:
-        load_annotation(args.fileName, args.fileName + "-vep-variant-loader")
+        load(args.fileName)
         
     else:
         chrList = args.chr.split(',') if not args.chr.startswith('all') \
             else [c.value for c in Human]
 
-        numChrs = len(chrList)
+        if len(chrList) == 1:
+            inputFile = get_input_file_name(chrList[0])
+            load(inputFile)
+
         with ProcessPoolExecutor(args.maxWorkers) as executor:
-            if numChrs > 1:
-                for c in chrList:
-                    if args.chr == 'allNoM' and c == 'M':
-                        continue 
-                    if args.chr == 'autosome' and c in ['X', 'Y', 'M', 'MT']:
-                        continue
-                    warning("Create and start thread for chromosome:", xstr(c))
-                    inputFile = get_input_file_name(c)
-                    executor.submit(load_annotation, fileName=inputFile, logFilePrefix='chr' + xstr(c))
-            else: # debugs better w/out thread overhead, so single file -- no threading
-                inputFile = get_input_file_name(chrList[0])
-                load_annotation(inputFile, 'chr' + xstr(chrList[0]))
+            for c in chrList:
+                if args.chr == 'allNoM' and c == 'M':
+                    continue 
+                if args.chr == 'autosome' and c in ['X', 'Y', 'M', 'MT']:
+                    continue
+                inputFile = get_input_file_name(c)
+                executor.submit(load, fileName=inputFile)

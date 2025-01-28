@@ -11,34 +11,56 @@ import argparse
 import os.path as path
 import random
 import sys
+import logging
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from psycopg2 import DatabaseError
 
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
 from niagads.utils.sys import warning, print_args
-from niagads.db.postgres import Database
+from niagads.db.postgres import Database, DatabaseError
+from niagads.utils.logging import ExitOnCriticalExceptionHandler
+from niagads.reference.chromosomes import Human
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser
 from AnnotatedVDB.Util.loaders import CADDUpdater
-from AnnotatedVDB.Util.enums import HumanChromosome as Human
+
 
 SELECT_SQL = "SELECT record_primary_key, metaseq_id, cadd_scores FROM AnnotatedVDB.Variant WHERE chromosome = %s"
 
-def initialize_loader(logFilePrefix):
+LOGGER = logging.getLogger(__name__)
+
+def initialize_logger(fileName):
+    
+    for handler in logging.root.handlers[:]: # vrs-logging is getting the way
+        logging.root.removeHandler(handler)
+    logFileName = fileName + '-load-vef.log' 
+    logHandler = logging.StreamHandler() if args.log2stderr \
+        else ExitOnCriticalExceptionHandler(
+                filename=logFileName,
+                mode='w',
+                encoding='utf-8',
+            )
+    logging.basicConfig(
+        handlers=[logHandler],
+        format='%(asctime)s %(funcName)s %(levelname)-8s %(message)s',
+        level=logging.DEBUG if args.debug else logging.INFO
+    )
+
+    return logHandler
+
+
+def initialize_loader(fileName):
     """! initialize loader """
 
-    lfn = path.join(args.logFilePath, xstr(logFilePrefix + ".log"))
-    warning("Logging to", lfn)
-    
     try:
-        loader = CADDUpdater(args.databaseDir, logFileName=lfn, verbose=args.verbose, debug=args.debug)
+        initialize_logger(fileName)
+        loader = CADDUpdater(args.databaseDir, verbose=args.verbose, debug=args.debug)
 
-        loader.log(("Parameters:", print_dict(vars(args), pretty=True)), prefix="INFO")
+        LOGGER.info("Parameters: %s", print_dict(vars(args), pretty=True))
 
-        loader.set_algorithm_invocation('load_cadd_scores', xstr(logFilePrefix) + '|' + print_args(args, False))
-        loader.log('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()), prefix="INFO")
+        loader.set_algorithm_invocation('load_cadd_scores', print_args(args, False), commit=args.commit)
+        LOGGER.info('Algorithm Invocation Id = ' + xstr(loader.alg_invocation_id()))
         
         loader.initialize_pk_generator(args.genomeBuild, args.seqrepoProxyPath)
         
@@ -54,12 +76,13 @@ def initialize_loader(logFilePrefix):
     return loader
     
 
-def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
-    loader = initialize_loader(logFilePrefix)
+def update_cadd_scores_by_query(chromosome=None, querySql=None):
+    loader = initialize_loader("cadd-updated-by-query")
+    
     if querySql is None:
         querySql = SELECT_SQL
-    loader.log('Updating by query: ' + querySql, prefix="INFO")
-  
+    LOGGER.info('Updating by query: ' + querySql)
+
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -77,21 +100,21 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
                         
             loader.set_cursor(updateCursor)            
             if chromosome is None:
-                loader.log("Executing query: " + querySql, prefix="INFO")
+                LOGGER.info("Executing query: " + querySql)
                 selectCursor.execute(querySql)
             else:            
-                loader.log("Executing query: " + querySql.replace('%s', "'" + chrm + "'"), prefix="INFO")
+                LOGGER.info("Executing query: " + querySql.replace('%s', "'" + chrm + "'"))
                 selectCursor.execute(querySql, [chrm])
                 
             for record in selectCursor:     
                 recordCount += 1
                 if args.debug and args.veryVerbose:
-                    loader.log(("Record:", print_dict(record)), prefix="DEBUG")
+                    LOGGER.debug("Record: %s", print_dict(record))
                     
                 if record['cadd_scores'] is not None:
                     loader.increment_counter('skipped')
                     if args.debug and args.veryVerbose:
-                        loader.log(("Skipped", record['record_primary_key']), prefix="DEBUG")
+                        LOGGER.debug("Skipped %s", record['record_primary_key'])
                 else: 
                     loader.set_current_variant(record)
                     loader.buffer_variant()
@@ -112,7 +135,7 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
                     
                     messagePrefix = "COMMITTED" if args.commit else "ROLLING BACK"
                     
-                    loader.log(message, prefix=messagePrefix)
+                    LOGGER.info("%s: %s", messagePrefix, message)
 
                     if args.test:
                         break
@@ -135,22 +158,19 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
                 database.rollback()
                 messagePrefix = "ROLLING BACK"
             
-            loader.log(message, prefix=messagePrefix)
-            loader.log("DONE", prefix="INFO")
+            LOGGER.info("%s: %s", messagePrefix, message)
+            LOGGER.info("DONE")
             
             if args.test:
-                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")
+                LOGGER.info("DONE - TEST COMPLETE")
             
     except DatabaseError as err:
-        loader.log("Problem updating variant: "  \
-            + loader.get_current_variant(toStr=True), prefix="ERROR")
+        LOGGER.critical("Problem updating variant: "  \
+            + loader.get_current_variant(toStr=True))
         raise(err)
     except Exception as err:
-        loader.log("Problem parsing variant: " + loader.get_current_variant(toStr=True), prefix="ERROR")
-        # loader.log((recordCount, ":", print_dict(record)), prefix="LINE")
-        loader.log(str(err), prefix="ERROR")
+        LOGGER.critical("Problem parsing variant: " + loader.get_current_variant(toStr=True))
         raise(err)
-
 
     finally:
         database.close()
@@ -158,7 +178,8 @@ def update_cadd_scores_by_query(logFilePrefix, chromosome=None, querySql=None):
 
 
 def update_cadd_scores_by_vcf(): 
-    loader = initialize_loader(args.vcfFile + "-cadd-loader")
+    loader = initialize_loader(args.vcfFile)
+
     try: 
         database = Database(args.gusConfigFile)
         database.connect()
@@ -187,14 +208,16 @@ def update_cadd_scores_by_vcf():
                         database.rollback()
                         messagePrefix = "ROLLING BACK"
                     
-                    loader.log(message, prefix=messagePrefix)
-                    loader.log("Skipped " + '{:,}'.format(loader.get_count('skipped')), prefix="INFO")
+                    if loader.get_count('skipped') > 0:
+                        message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped'))
+                
+                    LOGGER.info("%s: %s", messagePrefix, message)
                 
                     if args.test:
                         break
 
             # ======================= end iterate over records ==================================
-           
+
             # clear out buffer
             if (loader.update_buffer(sizeOnly=True)):
                 loader.update_variants() 
@@ -210,22 +233,23 @@ def update_cadd_scores_by_vcf():
             else:
                 database.rollback()
                 messagePrefix = "ROLLING BACK"
-            
-            loader.log(message, prefix=messagePrefix)
-            loader.log("Skipped " + '{:,}'.format(loader.get_count('skipped')), prefix="INFO")
-            loader.log("DONE", prefix="INFO")
+                
+            if loader.get_count('skipped') > 0:
+                message += "; SKIPPED " + '{:,}'.format(loader.get_count('skipped'))
+                
+            LOGGER.info("%s: %s", messagePrefix, message)
+
+            LOGGER.info("DONE")
             
             if args.test:
-                loader.log("DONE - TEST COMPLETE" , prefix="WARNING")             
+                LOGGER.info("DONE - TEST COMPLETE")
             
     except DatabaseError as err:
-        loader.log("Problem updating variant: "  \
+        LOGGER.critical("Problem updating variant: "  \
             + loader.get_current_variant(toStr=True), prefix="ERROR")
         raise(err)
     except Exception as err:
-        loader.log("Problem parsing variant: " + loader.get_current_variant(toStr=True), prefix="ERROR")
-        loader.log((lineCount, ":", line), prefix="LINE")
-        loader.log(str(err), prefix="ERROR")
+        LOGGER.critical("Problem parsing variant: %s", loader.get_current_variant(toStr=True))
         raise(err)
     finally:
         database.close()
@@ -256,6 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--gusConfigFile',
                         help="GUS config file. If not provided, assumes default: $GUS_HOME/conf/gus.config")
     parser.add_argument('--commit', action='store_true')
+    parser.add_argument('--log2stderr', action="store_true")
     args = parser.parse_args()
     
     if args.vcfFile:
@@ -271,12 +296,12 @@ if __name__ == "__main__":
             chrList = [c.value for c in Human]
 
         if len(chrList) == 1:
-            update_cadd_scores_by_query('db_chr' + xstr(chrList[0]), chromosome=xstr(chrList[0]))
+            update_cadd_scores_by_query(xstr(chrList[0]))
 
         else:
             random.shuffle(chrList) # so that not all large chrms are done at once if all is selected
             with ProcessPoolExecutor(args.maxWorkers) as executor:
-                futureUpdate = {executor.submit(update_cadd_scores_by_query, logFilePrefix='db_chr' + xstr(c),  chromosome=xstr(c)) : c for c in chrList}
+                futureUpdate = {executor.submit(update_cadd_scores_by_query, chromosome=xstr(c)) : c for c in chrList}
                 for future in as_completed(futureUpdate): # this should allow catching errors 
                     try:
                         future.result()

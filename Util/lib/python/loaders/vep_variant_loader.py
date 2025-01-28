@@ -32,24 +32,26 @@
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import json 
-import traceback
+
+from logging import StreamHandler
 
 from copy import deepcopy
-from io import StringIO
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update
-from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
-from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
+from GenomicsDBData.Util.utils import xstr, print_dict, deep_update
+from GenomicsDBData.Util.list_utils import qw
 
 from AnnotatedVDB.Util.parsers import VcfEntryParser, VepJsonParser, CONSEQUENCE_TYPES
 from AnnotatedVDB.Util.variant_annotator import VariantAnnotator
-from AnnotatedVDB.Util.loaders import VariantLoader
-from AnnotatedVDB.Util.database import VARIANT_ID_TYPES
+from AnnotatedVDB.Util.loaders import VariantLoader, JSONB_UPDATE_FIELDS
+
+NBSP = " " # for multi-line sql
+
+COPY_FIELDS = qw('allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
 class VEPVariantLoader(VariantLoader):
     """! functions for loading variants from VEP result """
     
-    def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
+    def __init__(self, datasource, verbose=False, debug=False):
         """! VEPVariantLoader base class initializer
 
             @param datasource          datasource description
@@ -59,9 +61,9 @@ class VEPVariantLoader(VariantLoader):
             
             @returns                   An instance of the VepVariantLoader class with initialized counters and copy buffer
         """
-        super(VEPVariantLoader, self).__init__(datasource, logFileName, verbose, debug)
+        super(VEPVariantLoader, self).__init__(datasource, verbose, debug)
         self.__vep_parser = None
-        self.log((type(self).__name__, "initialized"), prefix="INFO")
+        self.logger.info(type(self).__name__ + " initialized")
         
 
 
@@ -138,19 +140,16 @@ class VEPVariantLoader(VariantLoader):
         
         # update the alleleFreq dict, taking into account nestedness
         return deep_update(alleleFreqs, alleleGMAFs)
-    
-    
-    def __add_adsp_update_statement(self, recordPK, chromosome):
-        """ add update is_adsp_variant to update buffer """
-        chrm = 'chr' + xstr(chromosome)
-        values = (recordPK, chrm)
-        self._update_buffer.append(values)
-        # updateStr = "UPDATE AnnotatedVDB.Variant SET " \
-        #    + "is_adsp_variant = true WHERE record_primary_key = '"  + recordPK + "' " \
-        #    + "AND chromosome = '" + chrm + "'" # incl chromosome so it uses an index
-        # self._update_buffer.write(updateStr + ';')
         
     
+    def __get_variant_primary_key(self, metaseqId):
+        """ fetch variant primary key """
+        result = self.is_duplicate(metaseqId, returnMatch=True)
+        if result is None:
+            raise KeyError("No record for variant %s found in DB.  VEP Variant Loader does updates only.", metaseqId)
+        return result[0]['primary_key']
+        
+        
     def __parse_alt_alleles(self, vcfEntry):
         """! iterate over alleles and calculate values to load
             add to copy buffer
@@ -160,105 +159,108 @@ class VEPVariantLoader(VariantLoader):
         # extract result frequencies    
         frequencies = self.__get_result_frequencies()
         variant = self._current_variant # just for ease/simplicity
-        variantExternalId = variant.ref_snp_id if hasattr(variant, 'ref_snp_id') else None
-        
+            
         # clean result -- remove elements in the result JSON that are extracted 
         # and saved to other fields
         # does a deep copy so won't affect allele-specific extractions, so do just once
         # as this will remove the info for all alleles (frequencies, consequences)
         cleanResult = self.__clean_result() 
         
-        primaryKeyMapping = {}
         for alt in variant.alt_alleles:
             self.increment_counter('variant')
-            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)       
+            update = False
             
-            if not self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(annotator.get_metaseq_id(), 'METASEQ'):
+            annotator = VariantAnnotator(variant.ref_allele, alt, variant.chromosome, variant.position)    
+            recordPK = self.__get_variant_primary_key(annotator.get_metaseq_id())
+
+            if self.has_attribute('vep_output', recordPK, returnVal=False):
+                if self.skip_existing(): # otherwise will update existing record
                     self.increment_counter('duplicates')
                     if self._log_skips:
-                        self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")
+                        self.logger.warning("Existing data found for: %s | %s; SKIPPING", annotator.get_metaseq_id(), variant)
                     continue
-
-            if self.is_adsp(): # check for duplicates and update is_adsp_variant flag
-                lookupResult = self.has_attribute('is_adsp_variant', annotator.get_metaseq_id(), 'METASEQ', returnVal=True)
-                if lookupResult is not None: # not in db
-                    recordPK = lookupResult[0]
-                    isAdspVariant = lookupResult[1]
-                    if recordPK and isAdspVariant is None:
-                        self.__add_adsp_update_statement(recordPK, self._current_variant.chromosome)
-                        self.increment_counter('update')
-                    else:
-                        self.increment_counter('skipped') # already flagged
-                        self.increment_counter('duplicates')
-                        if self._log_skips:
-                            self.log(("Duplicate found: ", annotator.get_metaseq_id(), xstr(variant)), "INFO")                            
-                        if self._debug:
-                            self.log(("Is Known ADSP Variant?", annotator.get_metaseq_id(), recordPK, isAdspVariant), prefix="DEBUG")
-                    continue
-            
-            normRef, normAlt = annotator.get_normalized_alleles()
-            binIndex = self._bin_indexer.find_bin_index(variant.chromosome, variant.position,
-                                                        vcfEntry.infer_variant_end_location(alt))
-
+                if self._log_skips:
+                    self.logger.warning("Existing data found for: %s | %s; UPDATING", annotator.get_metaseq_id(), variant)
+                    
             # NOTE: VEP uses left normalized alleles to indicate freq allele, with - for full deletions
             # so need to use normalized alleles to match freq allele / consequence allele
             # to the correct variant alt allele
             normRef, normAlt = annotator.get_normalized_alleles(snvDivMinus=True)
+            
             alleleFreq = None if frequencies is None \
                 else self.__get_allele_frequencies(normAlt, frequencies)    
             alleleFreq = self.__add_vcf_frequencies(alleleFreq, vcfEntry, alt)
                         
             msConseq = self.__vep_parser.get_most_severe_consequence(normAlt)
-
-            recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), variantExternalId)      
-            primaryKeyMapping.update({annotator.get_metaseq_id: recordPK})
     
-            copyValues = ['chr' + xstr(variant.chromosome),
-                        recordPK,
-                        xstr(variant.position),
-                        xstr(variant.is_multi_allelic, falseAsNull=True, nullStr='NULL'),
-                        binIndex,
-                        xstr(variant.ref_snp_id, nullStr='NULL'),
-                        annotator.get_metaseq_id(),
-                        xstr(annotator.get_display_attributes(variant.rs_position), nullStr='NULL'),
-                        xstr(alleleFreq, nullStr='NULL'),
-                        xstr(msConseq, nullStr='NULL'),
-                        xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='NULL'),
-                        xstr(cleanResult), # cleaned result JSON
-                        xstr(self._alg_invocation_id)
-                        ]      
+            updateValues = [
+                recordPK,
+                'chr' + xstr(variant.chromosome),
+                xstr(alleleFreq, nullStr='{}'),
+                xstr(msConseq, nullStr='{}'),
+                xstr(self.__vep_parser.get_allele_consequences(normAlt), nullStr='{}'),
+                xstr(cleanResult, nullStr='{}'), # cleaned result JSON
+                int(self._alg_invocation_id)
+            ]      
             
             if self.is_adsp():
-                copyValues.append(xstr(True)) # is_adsp_variant
+                updateValues.append(xstr(True)) # is_adsp_variant
             
             if self._debug:
-                self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
-                self.log(copyValues, prefix="DEBUG")
-            self.add_copy_str('#'.join(copyValues))
+                self.logger.debug("Update Values: %s", updateValues)
 
-        return primaryKeyMapping
+            self.increment_counter('update')
+            self._update_buffer.append(updateValues)
 
+    
+    def initialize_update_sql(self):
+        """ generate update sql """
+        # chromosome record_primary_key allele_frequencies 
+        # adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id
+        fields = COPY_FIELDS
+        if self.is_adsp():
+            fields.append('is_adsp_variant')
+            
+        updateString = ""
+        for f in fields:
+            if f in JSONB_UPDATE_FIELDS:
+                updateString += ' '.join((f,  '=', 'jsonb_merge(COALESCE(v.' + f, ",'{}'::jsonb),", 'd.' + f + '::jsonb)')) + ', ' # e.g. v.gwas_flags = jsonb_merge(v.gwas_flags, d.gwas_flags::jsonb)
+            elif f == 'bin_index':
+                updateString += ' '.join((f,  '=', 'd.' + f + '::ltree')) + ', '
+            else:
+                updateString += ' '.join((f,  '=', 'd.' + f)) + ', '
+        
+        updateString = updateString.rstrip(', ') + NBSP
+        
+        if self.is_adsp():
+            fields.append('is_adsp_variant')
+            updateString += ", v.is_adsp_variant = d.is_adsp_variant" + NBSP
+
+        fields = ['record_primary_key', 'chromosome'] + fields
+        schema = "AnnotatedVDB"
+        sql = "UPDATE " + schema + ".Variant v SET" + NBSP + updateString \
+            + "FROM (VALUES %s) AS d(" + ','.join(fields) + ")" + NBSP \
+            + "WHERE v.chromosome = d.chromosome" + NBSP \
+            + "AND v.record_primary_key = d.record_primary_key"
+        
+        self.set_update_sql(sql)
+        if self._debug:        
+            self.logger.debug("Update SQL: " + self._update_sql)
+            
     
     def parse_variant(self, line):
         """! parse & load single line from file 
         @param line             the VEP result in string form
         @returns copy string for db load 
         """
-        if self.is_adsp() and self._variant_validator is None:
-            err = UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants");
-            self.log(str(err), prefix="ERROR")
-            raise err
+        if self._variant_validator is None:
+            raise UnboundLocalError("Validator has not been initialized, please execute the initialize_variant_validator method before parsing variants")
                     
         if self.resume_load() is False and self._resume_after_variant is None:
-            err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
-            self.log(str(err), prefix="ERROR")
-            raise err
-        
+            raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
+            
         newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
-        
-        variantPrimaryKeyMapping = None
-        
+                
         try:
             self.increment_counter('line')
             resultJson = json.loads(line)
@@ -279,14 +281,6 @@ class VEPVariantLoader(VariantLoader):
             
             # extract identifying variant info for frequent reference
             self._current_variant = entry.get_variant(dbSNP=self.is_dbsnp(), namespace=True)
-            
-            if self.is_dbsnp() and self.skip_existing():
-                if self.is_duplicate(self._current_variant.ref_snp_id, 'REFSNP', 'chr' + self._current_variant.chromosome):
-                    self.increment_counter('duplicates')
-                    self.increment_counter('skipped')
-                    if self._log_skips:
-                        self.log(("Duplicate found: ", xstr(self._current_variant)), "INFO")
-                    return None
         
             # rank consequences
             self.__vep_parser.adsp_rank_and_sort_consequences()
@@ -294,18 +288,15 @@ class VEPVariantLoader(VariantLoader):
             # log any new consequences
             if self.__vep_parser.get_consequence_parser().get_new_conseq_count() > newConseqCount:
                 newConseqCount = self.__vep_parser.get_consequence_parser().get_new_conseq_count()
-                self.log(("New consequence added for", self._current_variant.id, "-",
+                self.logger.warning("New consequence added for %s - %s",
+                    self._current_variant.id, 
                     self.__vep_parser.get_consequence_parser().get_added_consequences(mostRecent=True)),
-                    prefix="WARNING")
-    
+                    
             # iterate over alleles
-            variantPrimaryKeyMapping = self.__parse_alt_alleles(entry)
+            self.__parse_alt_alleles(entry)
             
-        except Exception as err:
-            self.log(str(err), prefix="ERROR")
+        except Exception as err:            
             raise err
             
-        finally:
-            return variantPrimaryKeyMapping
-    
+
     

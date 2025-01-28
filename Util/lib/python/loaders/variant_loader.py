@@ -42,6 +42,9 @@ import json
 
 from copy import deepcopy
 from io import StringIO
+from sys import stderr
+
+import logging
 
 from psycopg2.extras import execute_values
 
@@ -69,14 +72,15 @@ REQUIRED_COPY_FIELDS = ["chromosome", "record_primary_key", "position", "metaseq
 
 DEFAULT_COPY_FIELDS = qw('chromosome record_primary_key position is_multi_allelic bin_index ref_snp_id metaseq_id display_attributes allele_frequencies adsp_most_severe_consequence adsp_ranked_consequences vep_output row_algorithm_id', returnTuple=False)
 
-JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes", "loss_of_function"]
+JSONB_UPDATE_FIELDS = ["allele_frequencies", "gwas_flags", "other_annotation", "adsp_qc", "display_attributes", 
+    "loss_of_function", "vep_output", "adsp_most_severe_consequence", "adsp_ranked_consequences"]
 
 BOOLEAN_FIELDS = ["is_adsp_variant", "is_multi_allelic"]
 
 class VariantLoader(object):
     """! functions for loading variants -- use child classes for specific datasources / result types """
     
-    def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
+    def __init__(self, datasource, verbose=False, debug=False):
         """! VariantLoader base class initializer
 
             @param datasource          datasource description
@@ -87,7 +91,8 @@ class VariantLoader(object):
             @returns                   An instance of the VariantLoader class with initialized log, counters and copy buffer
         """
         # single underscore so protected / child classes can access
-        self._log_file_handle = None if logFileName is None else open(logFileName, 'w') 
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        # self.logger.addHandler(logFileHandler)
         self._verbose = verbose
         self._debug = debug
         self._datasource = datasource.lower() if datasource is not None else None
@@ -126,7 +131,6 @@ class VariantLoader(object):
     def close(self):
         self.close_copy_buffer()
         self.close_update_buffer()
-        self.close_log()
         if self._variant_validator is not None:
             self._variant_validator.close()
     
@@ -147,7 +151,7 @@ class VariantLoader(object):
         
     
     def initialize_variant_validator(self, gusConfigFile, useLegacyPK = False):
-        self.log("Initializing variant validator for duplicate checks", prefix="INFO")
+        self.logger.info("Initializing variant validator for duplicate checks")
         self._variant_validator = VariantRecord(gusConfigFile, self._verbose, self._debug)
         self._variant_validator.use_legacy_pk(useLegacyPK)
     
@@ -158,16 +162,16 @@ class VariantLoader(object):
             self.initialize_variant_validator(gusConfigFile)
             
             
-    def has_attribute(self, field, variantId, idType, chromosome=None, returnVal=True):
-        return self._variant_validator.has_attr(field, variantId, idType, chromosome, returnVal)            
+    def has_attribute(self, field, variantPK, returnVal=True):
+        return self._variant_validator.has_attr(field, variantPK, returnVal)            
     
     
-    def has_json_attribute(self, field, key, variantId, idType, chromosome=None, returnVal=True):
-        return self._variant_validator.has_json_attr(field, key, variantId, idType, chromosome, returnVal)        
+    def has_json_attribute(self, field, key, variantPK, returnVal=True):
+        return self._variant_validator.has_json_attr(field, key, variantPK, returnVal)        
         
             
-    def is_duplicate(self, variantId, idType, chromosome=None, returnPK=False):
-        return self._variant_validator.exists(variantId, idType, chromosome=chromosome, returnPK=returnPK)
+    def is_duplicate(self, variantId, returnMatch=False):
+        return self._variant_validator.exists(variantId, returnMatch=returnMatch)
     
     
     def skip_existing(self):
@@ -217,7 +221,7 @@ class VariantLoader(object):
 
     def get_current_variant_id(self):
         if self._debug:
-            self.log(print_dict(self._current_variant, pretty=True), prefix="DEBUG")
+            self.logger.debug(print_dict(self._current_variant, pretty=True))
         return self._current_variant.id if self._current_variant is not None else None
 
 
@@ -229,13 +233,9 @@ class VariantLoader(object):
             if is_subset(REQUIRED_COPY_FIELDS, copyFields):
                 return True
             else:
-                err = ValueError("Copy fields must include the following required fields: " + xstr(REQUIRED_COPY_FIELDS))
-                self.log(str(err), prefix="ERROR")
-                raise err
+                raise ValueError("Copy fields must include the following required fields: " + xstr(REQUIRED_COPY_FIELDS))
         else:
-            err = ValueError("Copy fields include invalid columns from AnnotatedVDB.Variant: se variant_loader.py for list of allowable fields")
-            self.log(str(err), prefix="ERROR")
-            raise err
+            raise ValueError("Copy fields include invalid columns from AnnotatedVDB.Variant: se variant_loader.py for list of allowable fields")
 
 
     def set_update_sql(self, sql):
@@ -255,7 +255,7 @@ class VariantLoader(object):
             + ") FROM STDIN WITH (NULL 'NULL', DELIMITER '#')"
             
         if self._debug:
-            self.log("SQL = " + self._copy_sql, prefix="DEBUG")
+            self.logger.debug("COPY SQL = " + self._copy_sql)
 
 
     def close_update_buffer(self):
@@ -430,34 +430,11 @@ class VariantLoader(object):
     
     def set_algorithm_invocation(self, callingScript, comment, commit=True):
         """! create entry in AnnotatedVDB.AlgorithmInvocation table for the data load
-         save alg_invocation_id
+        save alg_invocation_id
         """
         algInvocation = AlgorithmInvocation(callingScript, comment, commit)
         self._alg_invocation_id = xstr(algInvocation.getAlgorithmInvocationId())
-        algInvocation.close()
-
-        
-    def log(self, message, prefix=None):
-        """! print to log
-            @param message             message to print to log -- string or tuple/list
-            @param prefix              e.g., DEBUG, WARNING, ERROR
-        """
-        if not isinstance(message, str):
-            message = ' '.join([xstr(x) for x in message])
-        
-        if prefix:
-            message = prefix + ": " + message          
-        warning(message, file=self._log_file_handle, flush=True)
-        
-        
-    def log_fh(self):
-        """! @returns log file handle """
-        return self._log_file_handle
-    
-    
-    def close_log(self):
-        """! closes log file handle """
-        self._log_file_handle.close()
+        algInvocation.close()    
     
     
     def _update_resume_status(self, variantId):
@@ -472,9 +449,9 @@ class VariantLoader(object):
             
             if self.resume_load() is True: # resume load when next line is parsed
                 message = ("Resuming after", self._resume_after_variant)
-                self.log(message, prefix="WARNING")
+                self.logger.warning(message)
                 message = ("Skipped", xstr(self.get_count('skipped'), "variants"))
-                self.log(message, prefix="INFO")
+                self.logger.info(message)
 
 
     def update_variants(self):
@@ -490,13 +467,13 @@ class VariantLoader(object):
                     self._cursor.execute(self._update_buffer.getvalue())
                 else:
                     if self._debug:
-                        self.log(("Update buffer (head):", self._update_buffer[:10]), prefix="DEBUG")
+                        self.logger.debug('Update buffer (head): ' + xstr(self._update_buffer[:10]))
                     execute_values(self._cursor, self._update_sql, self._update_buffer, page_size=2**10)
                 self.reset_update_buffer()
             except Exception as e:
-                err = raise_pg_exception(e, returnError=True)
-                self.log(str(err), prefix="ERROR")
-                raise err
+                raise_pg_exception(e, returnError=False)
+        else:
+            self.logger.warning("update called on empty buffer")
             
 
     def load_variants(self):
@@ -506,9 +483,7 @@ class VariantLoader(object):
             self._cursor.copy_expert(self._copy_sql, self._copy_buffer, 2**10)
             self.reset_copy_buffer()
         except Exception as e:
-            err = raise_pg_exception(e, returnError=True)
-            self.log(str(err), prefix="ERROR")
-            raise err
+            raise_pg_exception(e, returnError=False)
         
         
     def parse_variant(self, line):
@@ -517,9 +492,4 @@ class VariantLoader(object):
         @returns copy string for db load 
         """
                 
-        err = NotImplementedError('Result parsing is not defined for the VariantLoader parent class, please use result-specific loader')
-        self.log(str(err), prefix="ERROR")
-        raise err
-      
-    
-
+        raise NotImplementedError('Result parsing is not defined for the VariantLoader parent class, please use result-specific loader')

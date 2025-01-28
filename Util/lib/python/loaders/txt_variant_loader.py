@@ -32,6 +32,8 @@
 # - Created by Emily Greenfest-Allen (fossilfriend) 2022
 
 import json
+
+from logging import StreamHandler
 from types import SimpleNamespace
 
 from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update
@@ -48,25 +50,25 @@ NBSP = " " # for multi-line sql
 class TextVariantLoader(VariantLoader):
     """! functions for loading variants from a delimited text file """
     
-    def __init__(self, datasource, logFileName=None, verbose=False, debug=False):
+    def __init__(self, datasource, logFileHandler=StreamHandler(), verbose=False, debug=False):
         """! VCFVariantLoader base class initializer
 
             @param datasource          datasource description
-            @param logFileName         full path to logging file
+            @param logFileHandler       log file handler
             @param verbose             flag for verbose output
             @param debug               flag for debug output
             
             @returns                   An instance of the TextVariantLoader class with initialized counters and fields
         """
-        super(TextVariantLoader, self).__init__(datasource, logFileName, verbose, debug)
+        super(TextVariantLoader, self).__init__(datasource, logFileHandler, verbose, debug)
         self.__update_existing = False
         self.__required_copy_fields = None
         self.__update_fields = None
         self.__variant_id_type = None
         self.__update_existing = False
-        self.log((type(self).__name__, "initialized"), prefix="INFO")
- 
- 
+        self.logger.info(type(self).__name__ + " initialized")
+
+
     def set_update_fields(self, fields):
         self.__update_fields = fields       
  
@@ -108,7 +110,7 @@ class TextVariantLoader(VariantLoader):
         self.__required_copy_fields = copyFields   
         
         if self._debug:
-            self.log(copyFields, prefix="DEBUG")
+            self.logger.debug('%s', copyFields)
 
         super(TextVariantLoader, self).initialize_copy_sql(copyFields=copyFields)
         
@@ -147,7 +149,7 @@ class TextVariantLoader(VariantLoader):
         
         self.set_update_sql(sql)
         if self._debug:        
-            self.log("Update SQL: " + self._update_sql, prefix="DEBUG")
+            self.logger.debug("Update SQL: " + self._update_sql)
 
 
     def __get_current_variant_id(self):
@@ -183,25 +185,6 @@ class TextVariantLoader(VariantLoader):
                         
         self._current_variant = SimpleNamespace(**variantInfo)
     
-    
-    def __is_updatable_json_element(self, updateStr, dbVals):
-        if dbVals is None: # field is empty in DB
-            return True
-        
-        updateVals = json.loads(updateStr)  
-        for uKey in updateVals.keys():
-            if uKey in dbVals:
-                uVal = updateVals[uKey]
-                dVal = dbVals[uKey] if uKey in dbVals else None
-                if dVal is None: # not in db
-                    return True
-                else:
-                    if uVal != dVal: # in db but not the same
-                        self.log(("u", uVal, "db", dVal), prefix="DEBUG")
-                        self.log(("match", uVal == dVal), prefix="DEBUG")
-                        return True
-            
-        return False   
 
     
     def __buffer_update_values(self, recordPK, record):
@@ -254,8 +237,8 @@ class TextVariantLoader(VariantLoader):
             copyValues.append(xstr(True)) # is_adsp_variant
             
         if self._debug:
-            self.log("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)), prefix="DEBUG")
-            self.log(copyValues, prefix="DEBUG")
+            self.logger.debug("Display Attributes " + print_dict(annotator.get_display_attributes(variant.rs_position)))
+            self.logger.debug('%s', copyValues)
             
         self.add_copy_str('#'.join(copyValues))
         
@@ -269,9 +252,7 @@ class TextVariantLoader(VariantLoader):
             raise TypeError("Please use the csv package to parse the file so that values can be accessed by column names")
             
         if self.resume_load() is False and self._resume_after_variant is None:
-            err = ValueError('Must set VariantLoader resume_afer_variant if resuming load')
-            self.log(str(err), prefix="ERROR")
-            raise err
+            raise ValueError('Must set VariantLoader resume_afer_variant if resuming load')
         
         try:
             self.increment_counter('line')
@@ -284,7 +265,7 @@ class TextVariantLoader(VariantLoader):
             recordPK, recordIdType = self.__get_current_variant_id()
             
             if recordIdType != 'PRIMARY_KEY': # get the primary key
-                recordPK = self.is_duplicate(recordPK, recordIdType, returnPK=True)
+                recordPK = self.is_duplicate(recordPK, returnPK=True)
 
             if recordPK is not None: # duplicate
                 self.increment_counter('variant')
@@ -301,5 +282,4 @@ class TextVariantLoader(VariantLoader):
                 self.__add_to_copy_buffer(record)
 
         except Exception as err:
-            self.log(str(err), prefix="ERROR")
             raise err

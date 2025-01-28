@@ -96,7 +96,7 @@ class VariantPKGenerator(object):
         return self._translator.translate_to(vrsDict, formatSpec)
 
         
-    def generate_primary_key(self, metaseqId, externalId=None):
+    def generate_primary_key(self, metaseqId, externalId=None, requireValidation=True):
         """! generate and returns the primary key 
         @param metaseqId         metaseq or SPDI formatted (with deletion sequence) variant representation
         @param externalId        refSnp or subSnp ID
@@ -110,15 +110,18 @@ class VariantPKGenerator(object):
         if len(ref) + len(alt) <= self._maxSequenceLength:
             pk.extend([ref,alt])
         else:
-            pk.append(self.compute_vrs_identifier(metaseqId))
+            try: 
+                pk.append(self.compute_vrs_identifier(metaseqId, requireValidation))
+            except Exception as err:
+                raise ValueError("Invalid Sequence; perhaps alleles need to be switched: " + metaseqId)
 
         if externalId is not None:
-          pk.append(externalId)
+            pk.append(externalId)
             
         return ':'.join(pk)
         
 
-    def get_vrs_allele_dict(self, metaseqId, serialize=False, toJson=False):
+    def get_vrs_allele_dict(self, metaseqId, serialize=False, toJson=False, requireValidation=True):
         """! get the GA4GH VRS Allele dict, given a variant
         @param metaseqId          metaseq or SPDI formatted (with deletion sequence) variant representation
         @param serialize          serialize to binary object
@@ -130,8 +133,8 @@ class VariantPKGenerator(object):
         # transform metaseq id to gnomad id (replace ':' with '-')
         # using gnomad b/c it accepts chrNum instead of refseq accession (required by SPDI)
         gnomadExpr = metaseqId.replace(':', '-')
-        alleleDict = self._translator._from_gnomad(gnomadExpr, assembly_name=self._genomeBuild)
-      
+        alleleDict = self._translator._from_gnomad(gnomadExpr, assembly_name=self._genomeBuild, require_validation=requireValidation)
+    
         if serialize:
             return ga4gh_serialize(alleleDict)
         if toJson:
@@ -140,26 +143,23 @@ class VariantPKGenerator(object):
         return alleleDict
         
         
-    def compute_vrs_identifier(self, metaseqId):
+    def compute_vrs_identifier(self, metaseqId, requireValidation=True):
         """! return computed GA4GH identifier for the variant
         @param metaseqId          metaseq or SPDI formatted (with deletion sequence) variant representation
         @returns                  VRS Computed Identifier with ga4gh:VA prefix removed
         """
-        alleleDict = self.get_vrs_allele_dict(metaseqId)
         
-        if self._debug:
-            debugOutput = {
-                "Input Variant":  metaseqId,
-                "VRS Representation" : alleleDict.for_json(),
-                }
-            warning(print_dict(debugOutput, pretty=True))
-
-        vrsComputedId = ga4gh_identify(alleleDict)
-            
-        return vrsComputedId.split('.')[1]
-
-
+        try:
+            alleleDict = self.get_vrs_allele_dict(metaseqId, requireValidation)
         
-        
+            if self._debug:
+                debugOutput = {
+                    "Input Variant":  metaseqId,
+                    "VRS Representation" : alleleDict.for_json(),
+                    }
+                warning(print_dict(debugOutput, pretty=True))
 
-        
+            vrsComputedId = ga4gh_identify(alleleDict)
+            return vrsComputedId.split('.')[1]
+        except Exception as err:
+            raise err

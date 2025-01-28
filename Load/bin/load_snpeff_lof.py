@@ -405,7 +405,8 @@ if __name__ == "__main__":
 
     validate_args()
 
-    chrmMap = ChromosomeMap(args.chromosomeMap) if args.chromosomeMap else None
+    raise NotImplementedError("TODO: update logging to run")
+
 
     if args.fileName:
         load_annotation(args.fileName, args.fileName + "-vcf-variant-loader")

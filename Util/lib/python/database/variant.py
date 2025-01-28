@@ -32,25 +32,11 @@ from niagads.utils.string import xstr
 
 VARIANT_ID_TYPES = ['REFSNP', 'METASEQ', 'PRIMARY_KEY']
 
-LOOKUP_SQL = "SELECT record_primary_key, metaseq_id, ref_snp_id FROM AnnotatedVDB.Variant WHERE"
-EXISTS_SQL = "SELECT record_primary_key FROM AnnotatedVDB.Variant WHERE"
-
-METASEQ_EXISTS_SQL = "SELECT record_primary_key FROM find_variant_by_metaseq_id_variations(%s)"
-METASEQ_LOOKUP_SQL = """record_primary_key IN (SELECT record_primary_key FROM find_variant_by_metaseq_id_variations(%s))"""
-
-REFSNP_LOOKUP_SQL = "record_primary_key IN (SELECT record_primary_key FROM find_variant_by_ref_snp(%s))"
 PRIMARY_KEY_LOOKUP_SQL = "record_primary_key = %s AND chromosome = 'chr' || split_part(%s, ':', 1)"
 LEGACY_PRIMARY_KEY_LOOKUP_SQL = """LEFT(metaseq_id, 50) = split_part(%s, '_', 1)
     AND (ref_snp_id = split_part(%s, '_', 2) 
     OR (ref_snp_id IS NULL AND split_part(%s, '_', 2) = ''))"""
     
-LOOKUP_SQL = {
-    'REFSNP' : REFSNP_LOOKUP_SQL,
-    'METASEQ' : METASEQ_LOOKUP_SQL,
-    'PRIMARY_KEY' : PRIMARY_KEY_LOOKUP_SQL,
-    'LEGACY_PRIMARY_KEY': LEGACY_PRIMARY_KEY_LOOKUP_SQL
-}
-
 BULK_LOOKUP_FULL_SQL = "SELECT * from get_variant_primary_keys_and_annotations(%s, %s, %s)"; # second param is "firstValueOnly flag"
 BULK_LOOKUP_SQL = "SELECT * from map_variants(%s, %s, %s)"; # second param is "firstValueOnly flag", then checkAltVariants
 
@@ -205,16 +191,17 @@ class VariantRecord(object):
         return json.loads(result) if isinstance(result, str) else result
     
     
-    def has_json_attr(self, field, key, variantId, idType, chromosome=None, returnVal=True):
+    def has_json_attr(self, field, key, variantPK, returnVal=True):
         """! checks to see if a JSONB field contains a specific key, returns value if true
 
             @param field            field/column to query
             @param key              json key fiekd
-            @param variantId            variant identifier
-            @param idType             type of variant identifier
-            
+            @param variantPK           variant identifier
+
             @returns tuple that is (primary key, value of the json attribute/ None if null) or (primary_key, boolean)
         """       
+        
+        raise NotImplementedError("TODO: update code to reflect PK only lookups")
         idType = idType.upper()
         self.__validate_id_type(idType)
 
@@ -258,107 +245,67 @@ class VariantRecord(object):
         return None
     
     
-    def has_attr(self, fields, variantId, idType, chromosome=None, returnVal=True):
+    def has_attr(self, field, variantPK, returnVal=True):
         """! checks to see the variant has a value for one or more fields
         usually used before an update so returning PK incase lookup is not the PK
+        NOTE: will only return True if all values are None, so getting the value list best if 
+        (returnVal = True) if assessing multiple values simultaneously
         
             @param fields                 one or more fields (string or array) /column to query
-            @param variantId             variant identifier
-            @param idType                type of variant identifier, must match one of VARIANT_ID_TYPES
+            @param variantPK             variant primary key
             @param returnVal             return the value if True else return boolean flag
-            @returns    tuple that is (primary key, value of the attribute/ None if null) or (primary_key, boolean)
+            @returns    value of the attribute or bool if returnVal = False
         """
-        idType = idType.upper()
-        self.__validate_id_type(idType)
         
-        field = fields
-        if not isinstance(fields, str): # then array of strings
-            field = ','.join(fields)
+        queryFields = field
+        if not isinstance(field, str): # then array of strings
+            queryFields = ','.join(field)
             returnVal = True # must return the values if requesting multiple fields
             
         try: 
-            lookupIdType = 'LEGACY_PRIMARY_KEY' if idType == 'PRIMARY_KEY' and self.legacy_pk() else idType
-            cursorKey = 'HAS_ATTR_' + field + '_' + lookupIdType     
-            sql = "SELECT record_primary_key, " + field + " FROM AnnotatedVDB.Variant WHERE " + LOOKUP_SQL[lookupIdType]
-            if self.legacy_pk():
-                sql = sql.replace('AnnotatedVDB', 'Public')
-                sql = sql.replace('SELECT record_primary_key',
-                                  "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id, LEFT(metaseq_id, 50)) AS record_primary_key")
+            cursorKey = 'HAS_ATTR_LOOKUP'
+            sql = "SELECT " + queryFields + " FROM AnnotatedVDB.Variant WHERE record_primary_key = %s"
                 
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
-            numBindParams = sql.count('%s')
-            params = []
-            for i in range(0, numBindParams):
-                params.append(variantId)
-            
-            if chromosome is not None: # for refsnp lookups
-                sql += ' AND chromosome = %s'
-                chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
-                params.append(chrm)
-                
-            if chromosome is None and lookupIdType != 'REFSNP':
-                sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
-                params.append(variantId)
-                                
-            cursor.execute(sql, tuple(params))
+            cursor.execute(sql, (variantPK, ))
             result = cursor.fetchone()
         
             if result is None:
-                return None # variant not in db
+                raise KeyError("No record found for variant %s in database.")
             
-            return list(result) if returnVal else (result[0], result is not None)
+            if len(result) == 1:
+                return result[0] if returnVal else result[0] is not None
+            else:
+                return list(result) if returnVal else all(v is not None for v in result)
+
 
         except Exception as err:
-            raise_pg_exception(err)
+            raise err
             
-        return None
     
 
-    def exists(self, variantId, idType, chromosome=None, returnPK=False):
+    def exists(self, variantId, returnMatch=False):
         """! check if against the AnnotatedVDB to see if a variant with the specified id is already present
 
             @param variantId             variant id to lookup
             @param idType                type of variant identifier, must match one of VARIANT_ID_TYPES
+            @param returnMatch           return the match (pk & bin index)
             @exception PG / DatabaseError   if issue w/database lookup, handled by raise_pg_exception
             @returns                     True if the variant exists in the database, else False
         """
-        idType = idType.upper()
-        self.__validate_id_type(idType)
-
         try: 
-            lookupIdType = 'LEGACY_PRIMARY_KEY' if idType == 'PRIMARY_KEY' and self.legacy_pk() else idType
-            cursorKey = 'EXISTS_' + lookupIdType
+            cursorKey = 'variant_exists'
             cursor = self.get_cursor(cursorKey, initializeIfMissing=True, realDict=False)
-            sql = METASEQ_EXISTS_SQL if idType == 'METASEQ' else EXISTS_SQL + ' ' + LOOKUP_SQL[lookupIdType]
-            if self.legacy_pk():
-                sql = sql.replace('AnnotatedVDB', 'Public')
-                sql = sql.replace('SELECT record_primary_key',
-                                  "SELECT COALESCE(LEFT(metaseq_id, 50) || '_' || ref_snp_id', LEFT(metaseq_id, 50)) AS record_primary_key")
-                
-            numBindParams = sql.count('%s')
-            params = []
-            for i in range(0, numBindParams):
-                params.append(variantId)
-            
-            if chromosome is not None: # for refsnp lookups
-                sql += ' AND chromosome = %s'
-                chrm = str(chromosome) if 'chr' in str(chromosome) else 'chr' + str(chromosome)
-                params.append(chrm)
-                
-            #if chromosome is None and lookupIdType is not 'REFSNP':
-            #    sql += " AND chromosome = 'chr' || split_part(%s, ':', 1)"
-            #    params.append(variantId)
-                
-            cursor.execute(sql, tuple(params))
+
+            cursor.execute(BULK_LOOKUP_SQL, (variantId, True, True)) # firstHitOnly, checkAltAlleles
             result = cursor.fetchone()
             
-            if result is None:
-                return False # variant not in db
+            if result[0][variantId] is None:
+                return None if returnMatch else False # variant not in db
             
-            return result[0] if returnPK else True
+            return result[0][variantId] if returnMatch else True
 
         except Exception as err:
-            raise_pg_exception(err)
+            raise err
 
-        return False
 
