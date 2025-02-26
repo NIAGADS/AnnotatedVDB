@@ -69,12 +69,17 @@ class VCFVariantLoader(VariantLoader):
         self.__update_fields = None
         self.__vcf_header_fields = None
         self.__chromosome = None
+        self.__requireSequenceValidation = True
         super(VCFVariantLoader, self).__init__(datasource, verbose, debug)
         self.logger.info(type(self).__name__ + " initialized")
 
     def set_chromosome(self, chrom):
         self.__chromosome = chrom
     
+
+    def require_sequence_validation(self, flag: bool):
+        self.__requireSequenceValidation = flag
+
 
     def chromosome(self):
         return self.__chromosome
@@ -230,17 +235,24 @@ class VCFVariantLoader(VariantLoader):
         """
         wrapper for generate primary key to catch invalid indels
         """
-        annotator = VariantAnnotator(ref, alt, chrm, pos)
+        if self.debug:
+            self.logger.debug('Entering ' + type(self).__name__ + '.' + '__generate_primary_key')
         try:
+            annotator = VariantAnnotator(ref, alt, chrm, pos)
+            # rv = True if self.__requireSequenceValidation == True else requireValidation
             recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), externalId, requireValidation=requireValidation)      
         except ValueError as err:
             # sequence mismatch for long indel; check to see if possibly an insertion
-            if len(alt) < len(ref):
-                self.logger.warning("%s - switching alleles", str(err))
-                return self.__generate_primary_key(chrm, pos, alt, ref, externalId, requireValidation=False)
-            else:
-                self.logger.warning("%s", str(err))
-                return self.__generate_primary_key(chrm, pos, ref, alt, externalId, requireValidation=False)
+            try:
+                annotator = VariantAnnotator(alt, ref, chrm, pos)
+                recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), externalId, requireValidation=True)      
+                self.logger.warning(f'switching alleles: ' + str(err))
+                                    
+            except:
+                if self.debug:
+                    self.logger.debug("Final lookup")
+                annotator = VariantAnnotator(ref, alt, chrm, pos)
+                recordPK = self._pk_generator.generate_primary_key(annotator.get_metaseq_id(), externalId, requireValidation=False)      
         return annotator, recordPK
     
     

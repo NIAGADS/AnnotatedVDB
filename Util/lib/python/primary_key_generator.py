@@ -113,7 +113,8 @@ class VariantPKGenerator(object):
             try: 
                 pk.append(self.compute_vrs_identifier(metaseqId, requireValidation))
             except Exception as err:
-                raise ValueError("Invalid Sequence; perhaps alleles need to be switched: " + metaseqId)
+                x = str(err)
+                raise ValueError(f'Sequence mismatch for {metaseqId}: {x}')
 
         if externalId is not None:
             pk.append(externalId)
