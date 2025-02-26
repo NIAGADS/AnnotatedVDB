@@ -18,7 +18,7 @@ from concurrent.futures import ProcessPoolExecutor
 from niagads.utils.logging import ExitOnCriticalExceptionHandler, ExitOnExceptionStreamHandler
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
-from niagads.utils.sys import warning, die, get_opener, print_args
+from niagads.utils.sys import warning, die, get_opener, print_args, verify_path
 from niagads.db.postgres import Database, DatabaseError
 from niagads.reference.chromosomes import Human
 
@@ -277,9 +277,9 @@ if __name__ == "__main__":
                         help="fail on specific variant and log output; if COMMIT = True, COMMIT will be set to False")
     parser.add_argument('--skipExisting', action='store_true',
                         help="check each variant against the database, load non-duplicates only -- time consuming")
-    parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'NIAGADS', 'EVA'],
+    parser.add_argument('--datasource', choices=['dbSNP', 'DBSNP', 'dbsnp', 'ADSP', 'ADSP-FunGen', 'NIAGADS', 'EVA'],
                         default='dbSNP',
-                        help="variant source: dbSNP, NIAGADS, ADSP, or EVA (European Variant Archive")
+                        help="variant source: dbSNP, NIAGADS, ADSP, ADSP-FunGen or EVA (European Variant Archive")
     parser.add_argument('--logExisting', action='store_true')
     parser.add_argument('--log2stderr', action="store_true")
     
@@ -290,7 +290,10 @@ if __name__ == "__main__":
     initialize_logger()
     
     if args.fileName:
-        load(args.fileName)
+        if verify_path(args.fileName):
+            load(args.fileName)
+        else:
+            LOGGER.info(f'Input file {args.fileName} not found.  EXITING.')
         
     else:
         chrList = args.chr.split(',') if not args.chr.startswith('all') \
