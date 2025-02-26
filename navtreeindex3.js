@@ -1,0 +1,24 @@
+var NAVTREEINDEX3 =
+{
+"namespaceparsers_1_1vep__parser.html":[0,0,4,3],
+"namespaceparsers_1_1vep__parser.html#a972e008a27d05d2d60e11da59b5e2824":[0,0,4,3,1],
+"namespaceparsers_1_1vep__parser.html#ad4dfd40b381f34def77eb5e8bbe95b33":[0,0,4,3,2],
+"namespaceparsers_1_1vep__parser.html#ae2308d7b64c41cac27aa205a522b1465":[0,0,4,3,3],
+"namespaceprimary__key__generator.html":[0,0,5],
+"namespaces.html":[0,0],
+"namespaceutil.html":[0,0,6],
+"namespacevariant__annotator.html":[0,0,7],
+"namespacevariant__annotator.html#ad4af1d03299e344105b98037adc8160c":[0,0,7,1],
+"namespacevariant__annotator.html#afb83676f1e23dd64591cb38201c8d538":[0,0,7,2],
+"pages.html":[],
+"parsers_2____init_____8py.html":[2,0,0,0,3,0],
+"primary__key__generator_8py.html":[2,0,0,0,5],
+"txt__variant__loader_8py.html":[2,0,0,0,2,2],
+"variant_8py.html":[2,0,0,0,0,1],
+"variant__annotator_8py.html":[2,0,0,0,6],
+"variant__loader_8py.html":[2,0,0,0,2,3],
+"vcf__parser_8py.html":[2,0,0,0,3,3],
+"vcf__variant__loader_8py.html":[2,0,0,0,2,4],
+"vep__parser_8py.html":[2,0,0,0,3,4],
+"vep__variant__loader_8py.html":[2,0,0,0,2,5]
+};
