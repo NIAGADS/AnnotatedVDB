@@ -20,7 +20,7 @@ from sys import stdout
 from niagads.utils.logging import ExitOnCriticalExceptionHandler
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
-from niagads.utils.sys import warning, die, print_args
+from niagads.utils.sys import warning, die, print_args, verify_path
 from niagads.db.postgres import Database, DatabaseError
 from niagads.reference.chromosomes import Human
 
@@ -288,7 +288,10 @@ if __name__ == "__main__":
     initialize_logger()
 
     if args.fileName:
-        load(args.fileName)
+        if verify_path(args.fileName):
+            load(args.fileName)
+        else:
+            LOGGER.info(f'Input file {args.fileName} not found.  EXITING.')
         
     else:
         chrList = args.chr.split(',') if not args.chr.startswith('all') \

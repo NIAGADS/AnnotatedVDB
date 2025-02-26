@@ -17,7 +17,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from niagads.utils.string import xstr
 from niagads.utils.dict import print_dict
-from niagads.utils.sys import warning, print_args
+from niagads.utils.sys import warning, print_args, verify_path
 from niagads.db.postgres import Database, DatabaseError
 from niagads.utils.logging import ExitOnCriticalExceptionHandler
 from niagads.reference.chromosomes import Human
@@ -284,8 +284,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.vcfFile:
-        update_cadd_scores_by_vcf()
+        if verify_path(args.vcfFile):
+            update_cadd_scores_by_vcf()
 
+        else:
+            LOGGER.info(f'Input file {args.fileName} not found.  EXITING.')
+       
     else:
         chrList = None
         if args.chr not in ['all', 'autosome']:
