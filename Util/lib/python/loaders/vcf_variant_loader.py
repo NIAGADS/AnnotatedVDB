@@ -35,6 +35,7 @@
 
 import json
 import re
+import subprocess
 import traceback
 
 from logging import StreamHandler
@@ -42,7 +43,7 @@ from logging import StreamHandler
 from copy import deepcopy
 from io import StringIO
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update
+from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update, execute_cmd
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
@@ -80,6 +81,7 @@ class VCFVariantLoader(VariantLoader):
         self.__chromosome = None
         self.__requireSequenceValidation = True
         self.__structural_variant = False
+        self.__pk_map_file = None
         self.__adsp_release = None
         super(VCFVariantLoader, self).__init__(datasource, verbose, debug)
         self.logger.info(type(self).__name__ + " initialized")
@@ -92,6 +94,9 @@ class VCFVariantLoader(VariantLoader):
 
     def structural_variants(self):
         self.__structural_variant = True
+        
+    def set_pk_map_file(self, fn):
+        self.__pk_map_file = fn
 
     def require_sequence_validation(self, flag: bool):
         self.__requireSequenceValidation = flag
@@ -321,6 +326,33 @@ class VCFVariantLoader(VariantLoader):
         recordPK = self._pk_generator.generate_sv_primary_key(chrom, start, end, svType)
         return recordPK
 
+    def __is_duplicate_from_file(self, pk):
+        """
+        Search for a pk in self.__pk_map_file.
+        Returns the matching line or None if not found.
+        """
+        if not self.__pk_map_file:
+            raise ValueError("Primary key map file not set.")
+
+        cmd = ["grep", "-m", "1", pk, self.__pk_map_file]
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                self.logger.debug(f"{result.stdout}")
+                return True
+            else:
+                return False
+        except Exception as e:
+            raise e
+            
+
+
     def __parse_structural_variant(self, vcfEntry: VcfEntryParser, flags):
         if self._debug:
             self.logger.debug(
@@ -344,7 +376,7 @@ class VCFVariantLoader(VariantLoader):
         recordPK = self.__generate_sv_primary_key(chrom, start, end, svType)
 
         if self._skip_existing:
-            if self.is_duplicate(recordPK, returnMatch=True):
+            if self.is_duplicate(recordPK, returnMatch=True) or self.__is_duplicate_from_file(recordPK):
                 if self._debug:
                     self.logger.debug(f"Skipping duplicate {recordPK}")
                 self.increment_counter("skipped")
@@ -584,7 +616,7 @@ class VCFVariantLoader(VariantLoader):
                     )
                 else:
                     if self._debug:
-                        self.logger.debug(f"Skipping failing record {entry.get("id")}")
+                        self.logger.debug(f"Skipping non-PASS record {entry.get("id")}")
                     self.increment_counter("skipped")
                     return None
 

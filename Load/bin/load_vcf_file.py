@@ -31,14 +31,12 @@ from AnnotatedVDB.Util.loaders import VCFVariantLoader
 LOGGER = logging.getLogger(__name__)
 
 
-def initialize_logger():
+def initialize_logger(fileName):
     for handler in logging.root.handlers[:]:  # vrs-logging is getting the way
         logging.root.removeHandler(handler)
 
     logFileName = (
-        args.fileName + "-load-vcf.log"
-        if args.fileName
-        else path.join(args.dir, "load-vcf.log")
+        fileName + "-load-vcf.log" if fileName else path.join(args.dir, "load-vcf.log")
     )
 
     logHandler = (
@@ -104,6 +102,7 @@ def initialize_loader(fileName):
 def load(fileName):
     """! parse over a VCF file; bulk load using COPY"""
 
+    initialize_logger(fileName)
     loader = initialize_loader(fileName)
     LOGGER.info("Parsing " + fileName)
     LOGGER.info("Writing metaseq_id -> primary_key mapping to " + fileName + ".mapping")
@@ -123,6 +122,9 @@ def load(fileName):
             fileName + ".mapping", "w"
         ) as mfh:
             loader.set_cursor(cursor)
+            if args.sv:
+                loader.set_pk_map_file(fileName + ".mapping")
+
             mappedFile = mmap.mmap(
                 fhandle.fileno(), 0, prot=mmap.PROT_READ
             )  # put file in swap
@@ -291,8 +293,8 @@ def validate_args():
         warning("--failAt option provided / running in NON-COMMIT mode")
         args.commit = False
 
-    if args.sv:  # have to commit after each to identify duplicates
-        args.commitAfter = 1
+    # if args.sv:  # have to commit after each to identify duplicates
+    #     args.commitAfter = 1
 
     if not args.logAfter:
         args.logAfter = args.commitAfter
@@ -319,6 +321,8 @@ def get_chr_file(chrm, dir, pattern):
     pattern = path.join(dir, f"*chr{chrm}{pattern}")
     LOGGER.debug(f"pattern = {pattern}")
     files = glob.glob(pattern)  # *chr b/c there may be a prefix
+    if len(files) == 0:
+        return None
     return files[0]
 
 
@@ -408,8 +412,6 @@ if __name__ == "__main__":
 
     validate_args()
 
-    initialize_logger()
-
     if args.fileName:
         if verify_path(args.fileName):
             load(args.fileName)
@@ -433,7 +435,8 @@ if __name__ == "__main__":
         else:
             with ProcessPoolExecutor(args.maxWorkers) as executor:
                 for c in chrList:
-                    if args.chr == "allNoM" and c == "M":
+                    if args.chr == "autosome" and c == "M":
                         continue
                     inputFile = get_chr_file(c, args.dir, args.pattern)
-                    executor.submit(load, fileName=inputFile)
+                    if inputFile is not None:
+                        executor.submit(load, fileName=inputFile)
