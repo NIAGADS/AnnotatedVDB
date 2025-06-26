@@ -133,11 +133,12 @@ class VariantPKGenerator(object):
     def generate_sv_primary_key(self, chrm: str, start, end, svType):
         # SVTYPE_CHR1_ENCODEDREGION
         location: SequenceLocation = self.get_ga4gh_sequence_location(chrm, start, end)
-        locationId = ga4gh_identify(location).replace("ga4gh:SL.", "")
-        # this always gives the same encoding, no matter the interval
-        # locationId = hashlib.sha512(
-        #     json.dumps(location.model_dump()).encode("utf-8")
-        # ).digest()
+        # locationId = ga4gh_identify(location).replace("ga4gh:SL.", "")
+        # this gives us an encoding w/hypens and dashes
+
+        locationId = hashlib.sha512(
+            json.dumps(location.model_dump()).encode("utf-8")
+        ).hexdigest()
 
         pk = f"{svType}_{chrm.upper()}_{locationId[:8].upper()}"
         if self._debug:
