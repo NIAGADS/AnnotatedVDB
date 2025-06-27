@@ -218,11 +218,6 @@ class VCFVariantLoader(VariantLoader):
 
     def __buffer_update_values(self, entry, flags):
         """save udpate values to value list"""
-        if self._debug:
-            self.logger.debug(
-                "Entering " + type(self).__name__ + "." + "__buffer_update_values"
-            )
-
         # TODO: check for duplicate has to happen in generate_update_values if not accounted for by flags
         # see default
         recordPK, uFlags, uValues = self.generate_update_values(entry, flags)
@@ -292,10 +287,7 @@ class VCFVariantLoader(VariantLoader):
         """
         wrapper for generate primary key to catch invalid indels
         """
-        if self.debug:
-            self.logger.debug(
-                "Entering " + type(self).__name__ + "." + "__generate_primary_key"
-            )
+
         try:
             annotator = VariantAnnotator(ref, alt, chrm, pos)
             # rv = True if self.__requireSequenceValidation == True else requireValidation
@@ -354,10 +346,7 @@ class VCFVariantLoader(VariantLoader):
 
 
     def __parse_structural_variant(self, vcfEntry: VcfEntryParser, flags):
-        if self._debug:
-            self.logger.debug(
-                "Entering " + type(self).__name__ + "." + "__parse_structural_variant"
-            )
+        if self._debug and self._verbose:
             self.logger.debug("Current Variant: %s", print_dict(self._current_variant))
             self.logger.debug("Update/Load flags: %s", flags)
 
@@ -454,10 +443,7 @@ class VCFVariantLoader(VariantLoader):
         @param flags                info passed for script that may qualify update or load
         """
 
-        if self._debug:
-            self.logger.debug(
-                "Entering " + type(self).__name__ + "." + "__parse_alt_alleles"
-            )
+        if self._debug and self._verbose:
             self.logger.debug("Current Variant: %s", print_dict(self._current_variant))
             self.logger.debug("Update/Load flags: %s", flags)
 
@@ -579,8 +565,6 @@ class VCFVariantLoader(VariantLoader):
         @returns copy string for db load
         """
 
-        if self._debug:
-            self.logger.debug("Entering " + type(self).__name__ + "." + "parse_variant")
 
         if self.resume_load() is False and self._resume_after_variant is None:
             raise ValueError(
