@@ -491,9 +491,11 @@ class VariantLoader(object):
     def load_variants(self):
         """! perform copy operation to insert variants into the DB"""
         try:
-            self._copy_buffer.seek(0)
-            self._cursor.copy_expert(self._copy_sql, self._copy_buffer, 2**10)
-            self.reset_copy_buffer()
+            isEmpty = self.copy_buffer(sizeOnly=True) == 0
+            if not isEmpty:
+                self._copy_buffer.seek(0)
+                self._cursor.copy_expert(self._copy_sql, self._copy_buffer, 2**10)
+                self.reset_copy_buffer()
         except Exception as e:
             raise_pg_exception(e, returnError=False)
 

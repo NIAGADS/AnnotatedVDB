@@ -101,16 +101,19 @@ def initialize_loader(fileName):
 
 def load(fileName):
     """! parse over a VCF file; bulk load using COPY"""
-
+    warning(f"Starting thread for {fileName}")
     initialize_logger(fileName)
     loader = initialize_loader(fileName)
+    pkMappingFile = f"{fileName}.mapping"
     LOGGER.info("Parsing " + fileName)
-    LOGGER.info("Writing metaseq_id -> primary_key mapping to " + fileName + ".mapping")
+    LOGGER.info(f"Writing metaseq_id -> primary_key mapping to {pkMappingFile}")
+    if args.sv:
+        loader.set_pk_map_file(pkMappingFile)
 
     resume = args.resumeAfter is None  # false if need to skip lines
     if not resume:
         LOGGER.info(
-            "--resumeAfter flag specified; Finding skip until point %", args.resumeAfter
+            f"--resumeAfter flag specified; Finding skip until point {args.resumeAfter}"
         )
         loader.set_resume_after_variant(args.resumeAfter)
 
@@ -118,117 +121,114 @@ def load(fileName):
         database = Database(args.gusConfigFile)
         database.connect()
         opener = get_opener(args.fileName)
-        with opener(fileName, "r") as fhandle, database.cursor() as cursor, open(
-            fileName + ".mapping", "w"
-        ) as mfh:
+
+        with database.cursor() as cursor:
             loader.set_cursor(cursor)
-            if args.sv:
-                loader.set_pk_map_file(fileName + ".mapping")
+            # fmt:off
+            with opener(fileName, "r") as fhandle, open(pkMappingFile, 'w') as mfh:
+            # fmt: on
+                mappedFile = mmap.mmap(
+                    fhandle.fileno(), 0, prot=mmap.PROT_READ
+                )  # put file in swap
+                lineCount = 0
+                for line in iter(mappedFile.readline, b""):
+                    line = line.decode(
+                        "utf-8"
+                    )  # in python 3, mapped file is a  binary IO object
+                    if line.startswith("#"):  # skip comments
+                        continue
 
-            mappedFile = mmap.mmap(
-                fhandle.fileno(), 0, prot=mmap.PROT_READ
-            )  # put file in swap
-            lineCount = 0
-            for line in iter(mappedFile.readline, b""):
-                line = line.decode(
-                    "utf-8"
-                )  # in python 3, mapped file is a  binary IO object
-                if line.startswith("#"):  # skip comments
-                    continue
-
-                if (lineCount == 0 and not loader.resume_load()) or (
-                    lineCount % args.commitAfter == 0 and loader.resume_load()
-                ):
-                    tstart = datetime.now()
-                    if args.debug:
-                        LOGGER.debug("Processing new copy object")
-
-                primaryKeyMapping = loader.parse_variant(line.rstrip())
-                if primaryKeyMapping is None:  # record skipped
-                    lineCount += 1
-                    continue
-
-                if args.debug:
-                    LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
-                for metaseqId, pk in primaryKeyMapping.items():
-                    print(metaseqId, pk, sep="\t", file=mfh, flush=True)
-
-                lineCount += 1
-
-                if not loader.resume_load():
-                    if lineCount % args.logAfter == 0:
-                        LOGGER.info("SKIPPED = {:,} lines".format(lineCount))
-                    continue
-
-                if loader.resume_load() != resume:  # then you are at the resume cutoff
-                    resume = True
-                    LOGGER.info("SKIPPED = {:,} lines".format(lineCount))
-                    continue
-
-                if lineCount % args.logAfter == 0 and lineCount % args.commitAfter != 0:
-                    LOGGER.info(
-                        "Parsed %s lines (%s variants)",
-                        lineCount,
-                        loader.get_count("variant"),
-                    )
-
-                if lineCount % args.commitAfter == 0:
-                    if args.debug:
-                        tendw = datetime.now()
-                        message = (
-                            "Copy object prepared in "
-                            + str(tendw - tstart)
-                            + "; "
-                            + str(loader.copy_buffer(sizeOnly=True))
-                            + " bytes; transfering to database"
-                        )
-                        LOGGER.debug(message)
-                        # LOGGER.debug(loader.copy_buffer().getvalue())
-
-                    loader.load_variants()
-                    if args.datasource.lower() == "adsp" and not args.sv:
-                        loader.update_variants()
-
-                    message = "{:,}".format(loader.get_count("variant")) + " variants"
-                    messagePrefix = "COMMITTED"
-                    if args.commit:
-                        database.commit()
-                    else:
-                        database.rollback()
-                        messagePrefix = "LOADED"
-                        message += " -- rolling back"
-
-                    if lineCount % args.logAfter == 0:
-                        message += (
-                            "; PARSED: "
-                            + xstr(lineCount)
-                            + "; up to = "
-                            + loader.get_current_variant_id()
-                        )
-
-                        if loader.get_count("update") > 0:
-                            message += (
-                                "; UPDATED =  {:,}".format(loader.get_count("update"))
-                                + " variants"
-                            )
-
-                        if loader.get_count("skipped") > 0:
-                            message += (
-                                "; SKIPPED = {:,}".format(loader.get_count("skipped"))
-                                + " variants"
-                            )
-
-                        LOGGER.info("%s: %s", messagePrefix, message)
+                    if (lineCount == 0 and not loader.resume_load()) or (
+                        lineCount % args.commitAfter == 0 and loader.resume_load()
+                    ):
+                        tstart = datetime.now()
                         if args.debug:
-                            tend = datetime.now()
-                            LOGGER.debug("Database copy time: " + str(tend - tendw))
-                            LOGGER.debug("        Total time: " + str(tend - tstart))
+                            LOGGER.debug("Processing new copy object")
 
-                    if args.test is not None:
-                        if lineCount % args.test == 0:
-                            break
+                    primaryKeyMapping = loader.parse_variant(line.rstrip())
+                    if primaryKeyMapping is None:  # record skipped
+                        lineCount += 1
+                        continue
 
-            mappedFile.close()
+                    if args.debug:
+                        LOGGER.debug("PKM-%s: %s", lineCount, primaryKeyMapping)
+                    for metaseqId, pk in primaryKeyMapping.items():
+                        print(metaseqId, pk, sep="\t", file=mfh, flush=True)
+
+                    lineCount += 1
+
+                    if not loader.resume_load():
+                        if lineCount % args.logAfter == 0:
+                            LOGGER.info("SKIPPED = {:,} lines".format(lineCount))
+                        continue
+
+                    if loader.resume_load() != resume:  # then you are at the resume cutoff
+                        resume = True
+                        LOGGER.info("SKIPPED = {:,} lines".format(lineCount))
+                        continue
+
+                    if lineCount % args.logAfter == 0 and lineCount % args.commitAfter != 0:
+                        LOGGER.info(
+                            "Parsed %s lines (%s variants)",
+                            lineCount,
+                            loader.get_count("variant"),
+                        )
+
+                    if lineCount % args.commitAfter == 0:
+                        if args.debug:
+                            tendw = datetime.now()
+                            message = (
+                                "Copy object prepared in "
+                                + str(tendw - tstart)
+                                + "; "
+                                + str(loader.copy_buffer(sizeOnly=True))
+                                + " bytes; transfering to database"
+                            )
+                            LOGGER.debug(message)
+                            # LOGGER.debug(loader.copy_buffer().getvalue())
+
+                        loader.load_variants()
+                        if args.datasource.lower() == "adsp" and not args.sv:
+                            loader.update_variants()
+
+                        message = "{:,}".format(loader.get_count("variant")) + " variants"
+                        messagePrefix = "COMMITTED"
+                        if args.commit:
+                            database.commit()
+                        else:
+                            database.rollback()
+                            messagePrefix = "LOADED"
+                            message += " -- rolling back"
+
+                        if lineCount % args.logAfter == 0:
+                            message += (
+                                "; PARSED: "
+                                + xstr(lineCount)
+                                + "; up to = "
+                                + loader.get_current_variant_id()
+                            )
+
+                            if loader.get_count("update") > 0:
+                                message += (
+                                    "; UPDATED =  {:,}".format(loader.get_count("update"))
+                                    + " variants"
+                                )
+
+                            if loader.get_count("skipped") > 0:
+                                message += (
+                                    "; SKIPPED = {:,}".format(loader.get_count("skipped"))
+                                    + " variants"
+                                )
+
+                            LOGGER.info("%s: %s", messagePrefix, message)
+                            if args.debug:
+                                tend = datetime.now()
+                                LOGGER.debug("Database copy time: " + str(tend - tendw))
+                                LOGGER.debug("        Total time: " + str(tend - tstart))
+
+                        if args.test is not None:
+                            if lineCount % args.test == 0:
+                                break
 
             # ============== end mapped file ===================
 
@@ -263,7 +263,7 @@ def load(fileName):
             if args.test:
                 LOGGER.info("DONE - TEST COMPLETE")
 
-        # ============== end with open, cursor ===================
+            # ============== end with open, cursor ===================
 
     except DatabaseError as err:
         LOGGER.critical(
@@ -282,6 +282,7 @@ def load(fileName):
         raise (err)
     finally:
         mappedFile.close()
+        cursor.close()
         database.close()
         print(loader.get_algorithm_invocation_id(), file=stdout)
         loader.close()
@@ -318,7 +319,8 @@ def validate_args():
 
 
 def get_chr_file(chrm, dir, pattern):
-    pattern = path.join(dir, f"*chr{chrm}{pattern}")
+    # FIXME: this is just not 100%
+    pattern = path.join(dir, f"*chr{chrm}.{pattern}")
     LOGGER.debug(f"pattern = {pattern}")
     files = glob.glob(pattern)  # *chr b/c there may be a prefix
     if len(files) == 0:
