@@ -43,7 +43,14 @@ from logging import StreamHandler
 from copy import deepcopy
 from io import StringIO
 
-from GenomicsDBData.Util.utils import xstr, warning, print_dict, to_numeric, deep_update, execute_cmd
+from GenomicsDBData.Util.utils import (
+    xstr,
+    warning,
+    print_dict,
+    to_numeric,
+    deep_update,
+    execute_cmd,
+)
 from GenomicsDBData.Util.list_utils import qw, is_subset, is_equivalent_list
 from GenomicsDBData.Util.postgres_dbi import Database, raise_pg_exception
 
@@ -94,7 +101,7 @@ class VCFVariantLoader(VariantLoader):
 
     def structural_variants(self):
         self.__structural_variant = True
-        
+
     def set_pk_map_file(self, fn):
         self.__pk_map_file = fn
 
@@ -342,8 +349,6 @@ class VCFVariantLoader(VariantLoader):
                 return False
         except Exception as e:
             raise e
-            
-
 
     def __parse_structural_variant(self, vcfEntry: VcfEntryParser, flags):
         if self._debug and self._verbose:
@@ -365,7 +370,13 @@ class VCFVariantLoader(VariantLoader):
         recordPK = self.__generate_sv_primary_key(chrom, start, end, svType)
 
         if self._skip_existing:
-            if self.is_duplicate(recordPK, returnMatch=True) or self.__is_duplicate_from_file(recordPK):
+            if self.__is_duplicate_from_file(recordPK):
+                if self._debug:
+                    self.logger.debug(f"Skipping duplicate {recordPK}")
+                self.increment_counter("skipped")
+                return None
+
+            if self.is_duplicate(recordPK, returnMatch=True):
                 if self._debug:
                     self.logger.debug(f"Skipping duplicate {recordPK}")
                 self.increment_counter("skipped")
@@ -564,7 +575,6 @@ class VCFVariantLoader(VariantLoader):
         @param flags            flags that may be used to modify update or copy strings
         @returns copy string for db load
         """
-
 
         if self.resume_load() is False and self._resume_after_variant is None:
             raise ValueError(
