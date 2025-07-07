@@ -369,13 +369,15 @@ class VCFVariantLoader(VariantLoader):
 
         recordPK = self.__generate_sv_primary_key(chrom, start, end, svType)
 
-        if self._skip_existing:
-            if self.__is_duplicate_from_file(recordPK):
-                if self._debug:
-                    self.logger.debug(f"Skipping duplicate {recordPK}")
-                self.increment_counter("skipped")
-                return None
+        # always check against the mapping file
+        if self.__is_duplicate_from_file(recordPK):
+            if self._debug:
+                self.logger.debug(f"Skipping duplicate {recordPK}")
+            self.increment_counter("skipped")
+            return None
 
+        # only check against db if option is set
+        if self._skip_existing:
             if self.is_duplicate(recordPK, returnMatch=True):
                 if self._debug:
                     self.logger.debug(f"Skipping duplicate {recordPK}")
