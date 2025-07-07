@@ -417,6 +417,14 @@ class VCFVariantLoader(VariantLoader):
             "sv_model": svModel,
         }
 
+        rawEntry = vcfEntry.get_entry()
+        # b/c the following are in the ADSP QC, not need to duplicate
+        del rawEntry["info"]
+        del rawEntry["qual"]
+        del rawEntry["format"]
+        del rawEntry["filter"]
+        del rawEntry["chrom"]  # just save space
+
         copyValues = [
             "chr" + xstr(self._current_variant.chromosome),
             recordPK,
@@ -430,10 +438,8 @@ class VCFVariantLoader(VariantLoader):
             "NULL",  # allele frequency
             xstr(True),  # is_structural_variant
             # passing NULL for these for now b/c QC causes duplicates
-            # xstr(vcfEntry.get_entry(), nullStr="NULL"),  # vcf_entry
-            # xstr(adspQC, nullStr="NULL"),  # adsp_qc
-            "NULL",
-            "NULL",
+            xstr(rawEntry, nullStr="NULL"),  # vcf_entry
+            xstr(adspQC, nullStr="NULL"),  # adsp_qc
         ]
 
         if self.is_adsp():
