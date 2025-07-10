@@ -87,7 +87,6 @@ class VCFVariantLoader(VariantLoader):
         self.__vcf_header_fields = None
         self.__chromosome = None
         self.__requireSequenceValidation = True
-        self.__structural_variant = False
         self.__pk_map_file = None
         self.__adsp_release = None
         super(VCFVariantLoader, self).__init__(datasource, verbose, debug)
@@ -98,9 +97,6 @@ class VCFVariantLoader(VariantLoader):
 
     def set_chromosome(self, chrom):
         self.__chromosome = chrom
-
-    def structural_variants(self):
-        self.__structural_variant = True
 
     def set_pk_map_file(self, fn):
         self.__pk_map_file = fn
@@ -134,7 +130,7 @@ class VCFVariantLoader(VariantLoader):
             ]
         )
 
-        if self.__structural_variant:
+        if self.is_structural_variant():
             fields.extend(["is_structural_variant", "vcf_entry", "adsp_qc"])
 
         if copyFields:
@@ -611,7 +607,7 @@ class VCFVariantLoader(VariantLoader):
                 dbSNP=self.is_dbsnp(), namespace=True
             )
 
-            if self.__structural_variant:
+            if self.is_structural_variant():
                 if entry.get("filter") == "PASS":  # for now
                     variantPrimaryKeyMapping = self.__parse_structural_variant(
                         entry, flags

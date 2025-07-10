@@ -166,6 +166,8 @@ class VariantLoader(object):
         self._skip_existing = False
         self._log_skips = False
 
+        self._is_structural_variant = False
+
         self._initialize_counters()
         self.initialize_copy_buffer()
         self.initialize_update_buffer()
@@ -178,6 +180,12 @@ class VariantLoader(object):
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+    def structural_variants(self):
+        self._is_structural_variant = True
+
+    def is_structural_variant(self):
+        return self._is_structural_variant
 
     def log_skips(self):
         self._log_skips = True
@@ -472,9 +480,9 @@ class VariantLoader(object):
                     self._update_buffer.seek(0)
                     self._cursor.execute(self._update_buffer.getvalue())
                 else:
-                    if self._debug:
+                    if self._debug and self._verbose:
                         self.logger.debug(
-                            "Update buffer (head): " + xstr(self._update_buffer[:10])
+                            "Update buffer (head): " + xstr(self._update_buffer[:5])
                         )
                     execute_values(
                         self._cursor,

@@ -437,7 +437,7 @@ if __name__ == "__main__":
         else:
             with ProcessPoolExecutor(args.maxWorkers) as executor:
                 for c in chrList:
-                    if args.chr == "autosome" and c == "M":
+                    if args.chr == "autosome" and c in ["X", "Y", "M", "MT"]:
                         continue
                     inputFile = get_chr_file(c, args.dir, args.pattern)
                     if inputFile is not None:
