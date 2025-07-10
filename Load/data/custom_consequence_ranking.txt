@@ -1,6 +1,7 @@
 consequence	adsp_ranking	adsp_impact	ensembl_ranking	ensembl_impact	genomicsdb_consequence
 transcript_ablation	1	HIGH	1	HIGH	
 transcript_amplification	1	HIGH	1	HIGH	
+feature_elongation	1	HIGH	1	HIGH	
 "splice_acceptor_variant,splice_donor_variant,3_prime_UTR_variant,intron_variant"	2	HIGH	2	HIGH	
 "splice_acceptor_variant,splice_donor_variant,5_prime_UTR_variant,intron_variant"	2.5	HIGH			T
 "splice_acceptor_variant,splice_donor_variant,5_prime_UTR_variant,intron_variant,NMD_transcript_variant"	2.6	HIGH			T
