@@ -288,15 +288,6 @@ def validate_args():
                 )
 
 
-def get_chr_file(chrm, dir, pattern):
-    # FIXME: this is just not 100%
-    pattern = path.join(dir, f"*chr{chrm}.{pattern}")
-    files = glob.glob(pattern)  # *chr b/c there may be a prefix
-    if len(files) == 0:
-        return None
-    return files[0]
-
-
 def get_input_file_name(chrm):
     """find the file that matches the chromosome & specified extension"""
     pattern = path.join(args.dir, "*chr" + xstr(chrm) + args.extension)
@@ -413,11 +404,12 @@ if __name__ == "__main__":
             inputFile = get_input_file_name(chrList[0])
             load(inputFile)
 
-        with ProcessPoolExecutor(args.maxWorkers) as executor:
-            for c in chrList:
-                if args.chr == "allNoM" and c == "M":
-                    continue
-                if args.chr == "autosome" and c in ["X", "Y", "M", "MT"]:
-                    continue
-                inputFile = get_input_file_name(c)
-                executor.submit(load, fileName=inputFile)
+        else:
+            with ProcessPoolExecutor(args.maxWorkers) as executor:
+                for c in chrList:
+                    if args.chr == "allNoM" and c == "M":
+                        continue
+                    if args.chr == "autosome" and c in ["X", "Y", "M", "MT"]:
+                        continue
+                    inputFile = get_input_file_name(c)
+                    executor.submit(load, fileName=inputFile)
